@@ -264,7 +264,7 @@ package: all
 	sed 's/%%VERSION%%/${PKG_VERSION}/' ${PKG_METADIR}/+MANIFEST \
 	    > ${PKG_STAGEDIR}/+MANIFEST
 	# Build package (ABI override for cross-compilation on amd64 host)
-	ABI=FreeBSD:14:aarch64 pkg create \
+	ABI=FreeBSD:15:aarch64 pkg create \
 	    -M ${PKG_STAGEDIR}/+MANIFEST -p ${PKG_METADIR}/plist \
 	    -r ${PKG_STAGEDIR} -o ${DISTDIR}/
 	@echo "==> Package: ${DISTDIR}/mono-gateway-${PKG_VERSION}.pkg"
