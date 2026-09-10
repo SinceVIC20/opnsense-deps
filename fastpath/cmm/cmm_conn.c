@@ -779,6 +779,10 @@ cmm_conn_maintenance(struct cmm_global *g)
 			conn = container_of(pos, struct cmm_conn,
 			    hash_entry);
 			if (!(conn->flags & CONN_F_OFFLOADED)) {
+				if (conn->orig_route != NULL)
+					conn->orig_route->fpp_rejected = 0;
+				if (conn->rep_route != NULL)
+					conn->rep_route->fpp_rejected = 0;
 				if (conn_try_offload(g, conn) == 0)
 					retried++;
 			}
