@@ -141,6 +141,11 @@ static struct selinfo	pfn_rsel;
 static int		pfn_open;	/* only one client */
 static struct cdev	*pfn_cdev;
 
+/* INSERT events currently have no consumer beyond a TRACE log, so
+ * they're off by default - every one still costs a ring slot and
+ * mutex round-trip that READY/DELETE could otherwise use. */
+static int		pfn_notify_insert;
+
 /* Statistics */
 static uint64_t		pfn_events_total;
 static uint64_t		pfn_events_dropped;
@@ -213,7 +218,7 @@ pfn_insert_state(struct pf_kstate *s)
 {
 	struct pfn_event ev;
 
-	if (!pfn_open)
+	if (!pfn_open || !pfn_notify_insert)
 		return;
 
 	pfn_fill_event(&ev, PFN_EVENT_INSERT, s);
@@ -548,6 +553,11 @@ pfn_sysctl_init(void)
 	    OID_AUTO, "ring_size", CTLFLAG_RD,
 	    SYSCTL_NULL_INT_PTR, PFN_RING_SIZE,
 	    "Ring buffer capacity (events)");
+
+	SYSCTL_ADD_INT(&pfn_sysctl_ctx, SYSCTL_CHILDREN(parent),
+	    OID_AUTO, "notify_insert", CTLFLAG_RW,
+	    &pfn_notify_insert, 0,
+	    "Queue INSERT events (off by default - TRACE-log only consumer)");
 
 	SYSCTL_ADD_U64(&pfn_sysctl_ctx, SYSCTL_CHILDREN(parent),
 	    OID_AUTO, "events_total", CTLFLAG_RD,
