@@ -779,12 +779,35 @@ cmm_conn_maintenance(struct cmm_global *g)
 			conn = container_of(pos, struct cmm_conn,
 			    hash_entry);
 			if (!(conn->flags & CONN_F_OFFLOADED)) {
+				int was_rejected =
+				    (conn->orig_route != NULL &&
+				    conn->orig_route->fpp_rejected) ||
+				    (conn->rep_route != NULL &&
+				    conn->rep_route->fpp_rejected);
+
 				if (conn->orig_route != NULL)
 					conn->orig_route->fpp_rejected = 0;
 				if (conn->rep_route != NULL)
 					conn->rep_route->fpp_rejected = 0;
-				if (conn_try_offload(g, conn) == 0)
+				if (conn_try_offload(g, conn) == 0) {
 					retried++;
+					if (was_rejected)
+						/*
+						 * CMM_LOG_ERR (not INFO): must
+						 * always print regardless of
+						 * debug_level, and pairs with
+						 * the matching rejection log
+						 * in cmm_fe.c, also bumped to
+						 * ERR for the same reason —
+						 * see issue #11.
+						 */
+						cmm_print(CMM_LOG_ERR,
+						    "conn: route id=%u "
+						    "recovered from earlier "
+						    "CDX rejection, offload "
+						    "now active",
+						    conn->orig_route->fpp_id);
+				}
 			}
 		}
 	}
