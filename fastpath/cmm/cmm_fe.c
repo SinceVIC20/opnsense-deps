@@ -188,11 +188,7 @@ cmm_fe_route_register(struct cmm_global *g, struct cmm_route *rt)
 		cmm_print(CMM_LOG_DEBUG,
 		    "fe: route id=%u already in CDX, reusing", rt->fpp_id);
 	} else if (rc == FPP_ERR_UNKNOWN_INTERFACE) {
-		/*
-		 * CMM_LOG_ERR (not WARN): must always print regardless of
-		 * debug_level, so it can't be filtered out independently of
-		 * the matching recovery log in cmm_conn.c — see issue #11.
-		 */
+		/* Always log this, even at low verbosity, so it's easy to spot on boot. */
 		cmm_print(CMM_LOG_ERR,
 		    "fe: route id=%u rejected: CDX unknown interface "
 		    "in=%s out=%s",

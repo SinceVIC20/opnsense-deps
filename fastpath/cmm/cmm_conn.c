@@ -792,15 +792,7 @@ cmm_conn_maintenance(struct cmm_global *g)
 				if (conn_try_offload(g, conn) == 0) {
 					retried++;
 					if (was_rejected)
-						/*
-						 * CMM_LOG_ERR (not INFO): must
-						 * always print regardless of
-						 * debug_level, and pairs with
-						 * the matching rejection log
-						 * in cmm_fe.c, also bumped to
-						 * ERR for the same reason —
-						 * see issue #11.
-						 */
+						/* Always log recovery, so a boot-time rejection is easy to confirm fixed. */
 						cmm_print(CMM_LOG_ERR,
 						    "conn: route id=%u "
 						    "recovered from earlier "
