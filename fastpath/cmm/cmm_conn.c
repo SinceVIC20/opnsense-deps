@@ -604,9 +604,14 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 
 	conn = conn_find_5tuple(af, proto, osaddr, odaddr, osport, odport);
 	if (conn != NULL) {
-		/* Existing connection — handle NAT upgrade */
+		/* Existing connection — handle NAT upgrade. This is the
+		 * normal, expected path for NAT'd connections (the companion
+		 * PF_OUT state's READY event arriving after the connection's
+		 * own creation) — confirmed both correct and routine on
+		 * hardware, so this stays at DEBUG rather than a level that
+		 * would log on nearly every NAT'd connection in production. */
 		if (is_nat && !(conn->flags & CONN_F_HAS_NAT)) {
-			cmm_print(CMM_LOG_INFO,
+			cmm_print(CMM_LOG_DEBUG,
 			    "conn: NAT upgrade from push event");
 
 			if (conn->flags & CONN_F_OFFLOADED) {
