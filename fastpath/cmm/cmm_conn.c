@@ -779,8 +779,27 @@ cmm_conn_maintenance(struct cmm_global *g)
 			conn = container_of(pos, struct cmm_conn,
 			    hash_entry);
 			if (!(conn->flags & CONN_F_OFFLOADED)) {
-				if (conn_try_offload(g, conn) == 0)
+				int was_rejected =
+				    (conn->orig_route != NULL &&
+				    conn->orig_route->fpp_rejected) ||
+				    (conn->rep_route != NULL &&
+				    conn->rep_route->fpp_rejected);
+
+				if (conn->orig_route != NULL)
+					conn->orig_route->fpp_rejected = 0;
+				if (conn->rep_route != NULL)
+					conn->rep_route->fpp_rejected = 0;
+				if (conn_try_offload(g, conn) == 0) {
 					retried++;
+					if (was_rejected)
+						/* Always log recovery, so a boot-time rejection is easy to confirm fixed. */
+						cmm_print(CMM_LOG_ERR,
+						    "conn: route id=%u "
+						    "recovered from earlier "
+						    "CDX rejection, offload "
+						    "now active",
+						    conn->orig_route->fpp_id);
+				}
 			}
 		}
 	}
