@@ -806,6 +806,8 @@ stats_sync_flush(struct cmm_global *g, struct pfn_counter_entry *entries,
     uint32_t count)
 {
 	struct pfn_counter_update upd;
+	struct cmm_conn *conn;
+	uint32_t i;
 
 	if (count == 0)
 		return;
@@ -814,10 +816,40 @@ stats_sync_flush(struct cmm_global *g, struct pfn_counter_entry *entries,
 	upd.pad = 0;
 	upd.entries = entries;
 
-	if (ioctl(g->pfnotify_fd, PFN_IOC_UPDATE_COUNTERS, &upd) < 0)
+	if (ioctl(g->pfnotify_fd, PFN_IOC_UPDATE_COUNTERS, &upd) < 0) {
 		cmm_print(CMM_LOG_WARN, "stats_sync: ioctl failed: %s",
 		    strerror(errno));
+		return;
+	}
+
+	/* PF has no state for this id — it was already torn down and we
+	 * missed the DELETE event (e.g. a full ring). conn_find_by_pfid()
+	 * only matches a conn's primary id, so a missing NAT-companion
+	 * entry alone finds nothing here and is left alone on purpose;
+	 * only a missing primary means the whole conn is truly orphaned. */
+	for (i = 0; i < count; i++) {
+		if (!entries[i].missing)
+			continue;
+		conn = conn_find_by_pfid(entries[i].id, entries[i].creatorid);
+		if (conn == NULL)
+			continue;
+		cmm_print(CMM_LOG_INFO,
+		    "conn: proto=%u orphaned (PF state gone, DELETE missed)",
+		    conn->proto);
+		conn_remove(g, conn);
+	}
 }
+
+/*
+ * Per-tick cap on connections queried.  fci_cmd() blocks on a real
+ * ioctl round-trip per connection, on the same thread that services
+ * pfnotify/rtsock - querying the whole table in one call stalls both
+ * for however long that takes.  1024 keeps a full lap (at a realistic
+ * few thousand offloaded connections) well under pf's 30s single-
+ * direction UDP timeout, so a slow lap can't cost a live connection
+ * its PF state and force an avoidable re-offload.
+ */
+#define CMM_STATS_SYNC_MAX_PER_TICK	1024
 
 void
 cmm_conn_stats_sync(struct cmm_global *g)
@@ -828,21 +860,32 @@ cmm_conn_stats_sync(struct cmm_global *g)
 	unsigned short resp_len;
 	struct cmm_conn *conn;
 	struct list_head *pos;
+	static unsigned int cursor;
+	unsigned int start, i, matched;
 	uint32_t n;
-	int i, rc;
+	int rc;
 
 	if (g->pfnotify_fd < 0)
 		return;
 
+	if (cursor >= CONN_HASH_SIZE)
+		cursor = 0;
+	start = cursor;
 	n = 0;
+	matched = 0;
 
-	for (i = 0; i < CONN_HASH_SIZE; i++) {
+	i = start;
+	do {
 		for (pos = list_first(&conn_hash[i]);
 		    pos != &conn_hash[i]; pos = list_next(pos)) {
 			conn = container_of(pos, struct cmm_conn, hash_entry);
 
 			if (!(conn->flags & CONN_F_OFFLOADED))
 				continue;
+
+			if (matched >= CMM_STATS_SYNC_MAX_PER_TICK)
+				goto done_scan;
+			matched++;
 
 			/* Build stat query for this flow's original 5-tuple */
 			memset(&cmd, 0, sizeof(cmd));
@@ -895,7 +938,14 @@ cmm_conn_stats_sync(struct cmm_global *g)
 				n = 0;
 			}
 		}
-	}
+
+		i = (i + 1 == CONN_HASH_SIZE) ? 0 : i + 1;
+	} while (i != start);
+
+done_scan:
+	/* Resume from here next tick - past the last bucket we finished,
+	 * or the one we stopped mid-way through on hitting the cap. */
+	cursor = i;
 
 	/* Flush remaining */
 	stats_sync_flush(g, batch, n);
