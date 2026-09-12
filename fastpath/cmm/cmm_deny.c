@@ -258,8 +258,13 @@ cmm_deny_init(const char *confpath)
 	}
 
 	fclose(f);
-	cmm_print(CMM_LOG_INFO, "deny: loaded %d rule%s from %s",
-	    deny_count, deny_count == 1 ? "" : "s", confpath);
+	if (deny_count == 0)
+		cmm_print(CMM_LOG_WARN,
+		    "deny: %s opened but zero rules loaded — "
+		    "all flows now offload-eligible", confpath);
+	else
+		cmm_print(CMM_LOG_INFO, "deny: loaded %d rule%s from %s",
+		    deny_count, deny_count == 1 ? "" : "s", confpath);
 	return (0);
 }
 
