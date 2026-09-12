@@ -945,7 +945,9 @@ cmm_conn_stats_sync(struct cmm_global *g)
 			batch[n].bytes[0] = resp.TotalBytes;
 			n++;
 
-			/* NAT companion PF state (if present) */
+			/* NAT companion PF state (if present). Traffic is
+			 * credited to the primary only - one flow, one
+			 * count. This entry just keeps its expire refreshed. */
 			if (conn->pf_has_nat_id) {
 				if (n >= PFN_COUNTER_BATCH_MAX)
 					stats_sync_flush(g, batch, n),
@@ -953,8 +955,6 @@ cmm_conn_stats_sync(struct cmm_global *g)
 				memset(&batch[n], 0, sizeof(batch[n]));
 				batch[n].id = conn->pf_id_nat;
 				batch[n].creatorid = conn->pf_creatorid_nat;
-				batch[n].packets[0] = resp.TotalPackets;
-				batch[n].bytes[0] = resp.TotalBytes;
 				n++;
 			}
 
