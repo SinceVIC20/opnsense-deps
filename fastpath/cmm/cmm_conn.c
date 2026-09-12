@@ -604,10 +604,12 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 
 	conn = conn_find_5tuple(af, proto, osaddr, odaddr, osport, odport);
 	if (conn != NULL) {
-		/* Existing connection — handle NAT upgrade */
+		/* Existing connection — handle NAT upgrade. Logged at ERR
+		 * to confirm on hardware whether this path is ever hit. */
 		if (is_nat && !(conn->flags & CONN_F_HAS_NAT)) {
-			cmm_print(CMM_LOG_INFO,
-			    "conn: NAT upgrade from push event");
+			cmm_print(CMM_LOG_ERR,
+			    "conn: NAT upgrade from push event"
+			    " (issue 24 finding 3 marker)");
 
 			if (conn->flags & CONN_F_OFFLOADED) {
 				if (conn->af == AF_INET)
