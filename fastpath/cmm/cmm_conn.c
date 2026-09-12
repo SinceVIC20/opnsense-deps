@@ -773,6 +773,10 @@ cmm_conn_maintenance(struct cmm_global *g)
 	int i;
 	unsigned int retried = 0;
 
+	/* Catch gateway MAC changes before retrying offload, so anything
+	 * just invalidated re-offloads in this same pass. */
+	cmm_route_check_neigh_changes(g);
+
 	for (i = 0; i < CONN_HASH_SIZE; i++) {
 		for (pos = list_first(&conn_hash[i]);
 		    pos != &conn_hash[i]; pos = list_next(pos)) {
