@@ -415,8 +415,10 @@ pfn_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
 		s = pf_find_state_byid(entries[i].id, entries[i].creatorid);
 		if (s == NULL) {
 			pfn_counter_misses++;
+			entries[i].missing = 1;
 			continue;
 		}
+		entries[i].missing = 0;
 		s->packets[0] += entries[i].packets[0];
 		s->packets[1] += entries[i].packets[1];
 		s->bytes[0] += entries[i].bytes[0];
@@ -433,8 +435,13 @@ pfn_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
 
 	CURVNET_RESTORE();
 
+	/* Report which entries were missing so CMM can drop its own
+	 * tracking for a flow PF no longer has, rather than depend on a
+	 * DELETE event that a full ring may have already dropped. */
+	error = copyout(entries, upd->entries, upd->count * sizeof(*entries));
+
 	free(entries, M_TEMP);
-	return (0);
+	return (error);
 }
 
 static int

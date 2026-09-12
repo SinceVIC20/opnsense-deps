@@ -825,6 +825,8 @@ stats_sync_flush(struct cmm_global *g, struct pfn_counter_entry *entries,
     uint32_t count)
 {
 	struct pfn_counter_update upd;
+	struct cmm_conn *conn;
+	uint32_t i;
 
 	if (count == 0)
 		return;
@@ -833,9 +835,28 @@ stats_sync_flush(struct cmm_global *g, struct pfn_counter_entry *entries,
 	upd.pad = 0;
 	upd.entries = entries;
 
-	if (ioctl(g->pfnotify_fd, PFN_IOC_UPDATE_COUNTERS, &upd) < 0)
+	if (ioctl(g->pfnotify_fd, PFN_IOC_UPDATE_COUNTERS, &upd) < 0) {
 		cmm_print(CMM_LOG_WARN, "stats_sync: ioctl failed: %s",
 		    strerror(errno));
+		return;
+	}
+
+	/* PF has no state for this id — it was already torn down and we
+	 * missed the DELETE event (e.g. a full ring). conn_find_by_pfid()
+	 * only matches a conn's primary id, so a missing NAT-companion
+	 * entry alone finds nothing here and is left alone on purpose;
+	 * only a missing primary means the whole conn is truly orphaned. */
+	for (i = 0; i < count; i++) {
+		if (!entries[i].missing)
+			continue;
+		conn = conn_find_by_pfid(entries[i].id, entries[i].creatorid);
+		if (conn == NULL)
+			continue;
+		cmm_print(CMM_LOG_INFO,
+		    "conn: proto=%u orphaned (PF state gone, DELETE missed)",
+		    conn->proto);
+		conn_remove(g, conn);
+	}
 }
 
 void
