@@ -468,6 +468,48 @@ conn_find_by_pfid(uint64_t id, uint32_t creatorid)
 }
 
 /*
+ * Same lookup, but by NAT-companion id instead of primary id. A
+ * companion state closing (DELETE, live or missed) doesn't end the
+ * connection - the primary keeps going - so callers use this only to
+ * find and clear stale companion bookkeeping, never to conn_remove().
+ */
+static struct cmm_conn *
+conn_find_by_nat_pfid(uint64_t id, uint32_t creatorid)
+{
+	struct list_head *pos;
+	struct cmm_conn *conn;
+	int i;
+
+	for (i = 0; i < CONN_HASH_SIZE; i++) {
+		for (pos = list_first(&conn_hash[i]);
+		    pos != &conn_hash[i]; pos = list_next(pos)) {
+			conn = container_of(pos, struct cmm_conn,
+			    hash_entry);
+			if (conn->pf_has_nat_id &&
+			    conn->pf_id_nat == id &&
+			    conn->pf_creatorid_nat == creatorid)
+				return (conn);
+		}
+	}
+	return (NULL);
+}
+
+/*
+ * Clear stale NAT-companion bookkeeping on a connection whose companion
+ * PF state is gone. Leaves the connection and its primary PF state
+ * (and offload) untouched - only the companion fields are reset so
+ * stats-sync stops re-querying a dead id forever.
+ */
+static void
+conn_clear_nat_companion(struct cmm_conn *conn)
+{
+	conn->pf_id_nat = 0;
+	conn->pf_creatorid_nat = 0;
+	conn->pf_has_nat_id = 0;
+	conn->flags &= ~CONN_F_HAS_NAT;
+}
+
+/*
  * Extract connection tuples from a pfn_event.
  * Same logic as conn_extract_tuples() but reads from pfn_event.
  */
@@ -690,6 +732,19 @@ handle_pf_delete(struct cmm_global *g, const struct pfn_event *ev)
 
 	conn = conn_find_by_pfid(ev->id, ev->creatorid);
 	if (conn == NULL) {
+		/* Not a primary id - check whether it's a NAT companion
+		 * closing on its own (e.g. asymmetric close) while the
+		 * primary connection is still alive. That's not an
+		 * unknown id, just stale bookkeeping to clear. */
+		conn = conn_find_by_nat_pfid(ev->id, ev->creatorid);
+		if (conn != NULL) {
+			cmm_print(CMM_LOG_DEBUG,
+			    "conn: proto=%u NAT companion closed, "
+			    "clearing stale companion id", conn->proto);
+			conn_clear_nat_companion(conn);
+			return;
+		}
+
 		cmm_print(CMM_LOG_TRACE,
 		    "conn: DELETE for unknown id=%016llx",
 		    (unsigned long long)ev->id);
@@ -823,20 +878,31 @@ stats_sync_flush(struct cmm_global *g, struct pfn_counter_entry *entries,
 	}
 
 	/* PF has no state for this id — it was already torn down and we
-	 * missed the DELETE event (e.g. a full ring). conn_find_by_pfid()
-	 * only matches a conn's primary id, so a missing NAT-companion
-	 * entry alone finds nothing here and is left alone on purpose;
-	 * only a missing primary means the whole conn is truly orphaned. */
+	 * missed the DELETE event (e.g. a full ring). Check the primary
+	 * id first: a missing primary means the whole conn is orphaned.
+	 * A missing NAT-companion id doesn't end the conn - the primary
+	 * is unaffected - so that case only clears the stale companion
+	 * bookkeeping instead of removing anything. */
 	for (i = 0; i < count; i++) {
 		if (!entries[i].missing)
 			continue;
 		conn = conn_find_by_pfid(entries[i].id, entries[i].creatorid);
+		if (conn != NULL) {
+			cmm_print(CMM_LOG_INFO,
+			    "conn: proto=%u orphaned (PF state gone, "
+			    "DELETE missed)", conn->proto);
+			conn_remove(g, conn);
+			continue;
+		}
+
+		conn = conn_find_by_nat_pfid(entries[i].id,
+		    entries[i].creatorid);
 		if (conn == NULL)
 			continue;
-		cmm_print(CMM_LOG_INFO,
-		    "conn: proto=%u orphaned (PF state gone, DELETE missed)",
-		    conn->proto);
-		conn_remove(g, conn);
+		cmm_print(CMM_LOG_DEBUG,
+		    "conn: proto=%u NAT companion gone (DELETE missed), "
+		    "clearing stale companion id", conn->proto);
+		conn_clear_nat_companion(conn);
 	}
 }
 
