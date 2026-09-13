@@ -198,7 +198,7 @@ cmm_deny_init(const char *confpath)
 {
 	FILE *f;
 	char line[256];
-	int lineno;
+	int lineno, candidates;
 
 	if (confpath == NULL)
 		confpath = CMM_DENY_CONF;
@@ -217,6 +217,7 @@ cmm_deny_init(const char *confpath)
 	}
 
 	lineno = 0;
+	candidates = 0;
 	while (fgets(line, sizeof(line), f) != NULL) {
 		struct cmm_deny_rule *r;
 		struct cmm_deny_rule tmp;
@@ -238,6 +239,8 @@ cmm_deny_init(const char *confpath)
 		if (*p == '\0' || *p == '#')
 			continue;
 
+		candidates++;
+
 		if (parse_rule(p, &tmp) < 0) {
 			cmm_print(CMM_LOG_WARN,
 			    "deny: %s:%d: parse error, skipping",
@@ -258,7 +261,10 @@ cmm_deny_init(const char *confpath)
 	}
 
 	fclose(f);
-	if (deny_count == 0)
+	/* Only warn if the file had actual rule lines that all failed to
+	 * load — an empty or comments-only file is a normal "no rules
+	 * wanted" case, not a silent failure. */
+	if (candidates > 0 && deny_count == 0)
 		cmm_print(CMM_LOG_WARN,
 		    "deny: %s opened but zero rules loaded — "
 		    "all flows now offload-eligible", confpath);
