@@ -123,8 +123,12 @@ route_resolve(struct cmm_global *g, struct cmm_route *rt)
 	/* pf route-to/reply-to sent this connection out a specific
 	 * interface - honor that instead of the default FIB's answer,
 	 * which knows nothing about pf's per-connection routing rules. */
-	if (rt->oif_hint != 0)
+	if (rt->oif_hint != 0) {
+		cmm_print(CMM_LOG_DEBUG,
+		    "route: resolve fib_oif=%d overridden to oif_hint=%d",
+		    rt->oif_index, rt->oif_hint);
 		rt->oif_index = rt->oif_hint;
+	}
 
 	/* Get gateway */
 	if ((rtm->rtm_flags & RTF_GATEWAY) && addrs.gateway != NULL) {
