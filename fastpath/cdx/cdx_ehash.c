@@ -534,7 +534,7 @@ struct cdx_ehash_pending_free {
 
 static struct list_head cdx_ehash_pending_frees;
 static int cdx_ehash_pending_frees_initialized;
-static unsigned int cdx_ehash_pending_free_cnt;
+static atomic_t cdx_ehash_pending_free_cnt;
 
 static inline void
 cdx_ehash_quarantine_init_once(void)
@@ -549,7 +549,7 @@ cdx_ehash_quarantine_init_once(void)
  * mutator serialization. */
 unsigned int cdx_ehash_quarantine_pending(void)
 {
-	return cdx_ehash_pending_free_cnt;
+	return atomic_read(&cdx_ehash_pending_free_cnt);
 }
 
 void cdx_ehash_quarantine_entry(void *tbl_entry)
@@ -575,7 +575,7 @@ void cdx_ehash_quarantine_entry(void *tbl_entry)
 	}
 	node->tbl_entry = tbl_entry;
 	list_add_tail(&node->list, &cdx_ehash_pending_frees);
-	cdx_ehash_pending_free_cnt++;
+	atomic_inc(&cdx_ehash_pending_free_cnt);
 	atomic_inc(&cdx_stat_hc_delete_quarantined);
 }
 
@@ -596,7 +596,7 @@ void cdx_ehash_quarantine_free_all(void)
 		ExternalHashTableEntryFree(node->tbl_entry);
 		kfree(node);
 	}
-	cdx_ehash_pending_free_cnt = 0;
+	atomic_set(&cdx_ehash_pending_free_cnt, 0);
 }
 
 /* Module-exit disposition of a backlog no drain could clear. cdx does
@@ -609,14 +609,16 @@ void cdx_ehash_quarantine_free_all(void)
 void cdx_ehash_quarantine_abandon(void)
 {
 	struct cdx_ehash_pending_free *node, *tmp;
+	int pending;
 
 	cdx_ehash_quarantine_init_once();
 
-	if (!cdx_ehash_pending_free_cnt)
+	pending = atomic_read(&cdx_ehash_pending_free_cnt);
+	if (!pending)
 		return;
 
 	DPA_ERROR("%s::HC channel never recovered, leaking %u quarantined entries\n",
-			__FUNCTION__, cdx_ehash_pending_free_cnt);
+			__FUNCTION__, pending);
 	/* Only the table entries have to be abandoned. The list nodes are
 	 * ordinary kmalloc'd bookkeeping with no hardware reference, so
 	 * release them rather than hand kmemleak a pile of reports that
@@ -626,7 +628,7 @@ void cdx_ehash_quarantine_abandon(void)
 		list_del(&node->list);
 		kfree(node);
 	}
-	cdx_ehash_pending_free_cnt = 0;
+	atomic_set(&cdx_ehash_pending_free_cnt, 0);
 }
 
 /* Retry the barrier for entries parked by an earlier failed sync. HC
@@ -647,7 +649,7 @@ void cdx_ehash_quarantine_drain(void *td)
 	if (ExternalHashTableFmPcdHcSync(td))
 	{
 		DPA_ERROR("%s::FmPcdHcSync failed, %u entries still quarantined\n",
-				__FUNCTION__, cdx_ehash_pending_free_cnt);
+				__FUNCTION__, atomic_read(&cdx_ehash_pending_free_cnt));
 		return;
 	}
 	cdx_ehash_quarantine_free_all();
