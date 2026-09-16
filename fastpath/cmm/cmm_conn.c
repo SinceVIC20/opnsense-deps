@@ -190,7 +190,7 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 	/* Look up route for original direction (dst = orig_daddr) */
 	if (conn->orig_route == NULL)
 		conn->orig_route = cmm_route_get(g, conn->af,
-		    conn->orig_daddr);
+		    conn->orig_daddr, conn->rt_ifindex);
 	if (conn->orig_route == NULL) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "conn: no route for original direction");
@@ -210,7 +210,7 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 	 */
 	if (conn->rep_route == NULL)
 		conn->rep_route = cmm_route_get(g, conn->af,
-		    conn->orig_saddr);
+		    conn->orig_saddr, conn->rt_ifindex_rep);
 	if (conn->rep_route == NULL) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "conn: no route for reply direction");
@@ -674,6 +674,12 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 				conn->rep_route = NULL;
 			}
 
+			/* Reply direction's route-to override comes from
+			 * this companion state, not the original one - it's
+			 * an independent pf state with its own route-to
+			 * decision. */
+			conn->rt_ifindex_rep = ev->rt_ifindex;
+
 			/* Save NAT companion PF state ID */
 			conn->pf_id_nat = ev->id;
 			conn->pf_creatorid_nat = ev->creatorid;
@@ -700,6 +706,8 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 	conn->pf_creatorid = ev->creatorid;
 	conn->pf_direction = ev->direction;
 	strlcpy(conn->ifname, ev->ifname, sizeof(conn->ifname));
+	conn->rt_ifindex = ev->rt_ifindex;
+	conn->rt_ifindex_rep = ev->rt_ifindex;
 	conn->hash_entry.next = NULL;
 	conn->hash_entry.prev = NULL;
 
