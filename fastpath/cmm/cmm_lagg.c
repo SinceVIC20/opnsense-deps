@@ -50,19 +50,15 @@ cmm_lagg_register(struct cmm_global *g, struct cmm_interface *itf)
 		    itf->ifname);
 		return (0);
 	}
-	if (itf->lagg_proto == LAGG_PROTO_BROADCAST) {
-		/* Hardware offload picks one forwarding action per flow;
-		 * broadcast mode's whole point is duplicating every packet
-		 * to every member port, which can't be expressed that way.
-		 * Leave it on the software path, where lagg_bcast_start()
-		 * already does real duplication correctly, rather than
-		 * silently offloading it onto a single member port and
-		 * quietly dropping the "send everywhere" behavior. */
-		cmm_print(CMM_LOG_INFO,
-		    "lagg: skip %s — laggproto broadcast can't be hardware "
-		    "offloaded, staying on the software path", itf->ifname);
-		return (0);
-	}
+	/* laggproto broadcast used to be rejected here outright, since
+	 * hardware offload picks one forwarding action per flow and
+	 * broadcast's whole point is duplicating every packet to every
+	 * member port. CDX now builds a per-flow REPLICATE_PKT chain
+	 * (cdx_build_lagg_broadcast_replicas() in cdx_ehash.c, called
+	 * from insert_entry_in_classif_table() for each flow as it's
+	 * offloaded) reusing the same FMan mechanism IP multicast uses,
+	 * so it's registered like any other LAGG - lagg_proto just needs
+	 * to reach CDX so it knows to build the chain per flow. */
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.action = FPP_ACTION_REGISTER;
@@ -70,6 +66,7 @@ cmm_lagg_register(struct cmm_global *g, struct cmm_interface *itf)
 	strlcpy(cmd.lagg_phy_ifname, itf->lagg_active_port,
 	    sizeof(cmd.lagg_phy_ifname));
 	memcpy(cmd.macaddr, itf->macaddr, ETHER_ADDR_LEN);
+	cmd.lagg_proto = itf->lagg_proto;
 
 	/* Populate member port list for multi-port hash entries */
 	cmd.num_members = 0;
@@ -79,6 +76,14 @@ cmm_lagg_register(struct cmm_global *g, struct cmm_interface *itf)
 		    IFNAMSIZ);
 		cmd.num_members++;
 	}
+	if (itf->lagg_num_members > FPP_LAGG_MAX_MEMBERS)
+		cmm_print(CMM_LOG_WARN,
+		    "lagg: %s has %d members, hardware offload only supports "
+		    "%d - members beyond the first %d get no hardware TX/RX "
+		    "matching or broadcast replication (silently limited to "
+		    "software for those ports)", itf->ifname,
+		    itf->lagg_num_members, FPP_LAGG_MAX_MEMBERS,
+		    FPP_LAGG_MAX_MEMBERS);
 
 	rc = fci_write(g->fci_handle, FPP_CMD_LAGG_ENTRY,
 	    sizeof(cmd), (unsigned short *)&cmd);
@@ -93,8 +98,9 @@ cmm_lagg_register(struct cmm_global *g, struct cmm_interface *itf)
 
 	itf->itf_flags |= ITF_F_FPP_LAGG;
 	cmm_print(CMM_LOG_INFO,
-	    "lagg: registered %s (active=%s, %d members)",
-	    itf->ifname, itf->lagg_active_port, cmd.num_members);
+	    "lagg: registered %s (active=%s, %d members, proto=%u)",
+	    itf->ifname, itf->lagg_active_port, cmd.num_members,
+	    itf->lagg_proto);
 
 	return (0);
 }
@@ -240,10 +246,52 @@ cmm_lagg_failover(struct cmm_global *g, struct cmm_interface *itf)
 		    itf->lagg_active_port[0] ?
 		        itf->lagg_active_port : "(none)",
 		    new_port);
-	else if (members_changed)
+	else if (members_changed) {
 		cmm_print(CMM_LOG_INFO,
 		    "lagg: %s member set changed (%d -> %d members)",
 		    itf->ifname, itf->lagg_num_members, new_num_members);
+		/* For broadcast mode specifically: report every membership
+		 * change against hardware replication's actual requirement
+		 * (>=2 usable members - one carries the primary entry, at
+		 * least one more gets a replica), not just a below/above-
+		 * threshold check. A 3->2 change still replicates but has
+		 * lost its margin; that's worth seeing plainly during
+		 * testing (unplugging LAGG member cables one at a time), not
+		 * folded into the same message as a fully healthy state.
+		 * Logged here, at the same event a cable pull/plug already
+		 * triggers - a state change, not a per-packet or per-flow
+		 * condition, so this adds no steady-state log volume. */
+		if (ra.ra_proto == LAGG_PROTO_BROADCAST) {
+			/* "X of Y usable" against the LAGG's full configured
+			 * port count (found - every port SIOCGLAGG reports as
+			 * a member, regardless of link state), not just a
+			 * before/after usable-count comparison - so a 3-of-4
+			 * LAGG and a 2-of-2 LAGG are each reported against
+			 * what they're actually supposed to have. */
+			if (new_num_members < 2)
+				cmm_print(CMM_LOG_WARN,
+				    "lagg: %s broadcast mode: %d of %d "
+				    "member(s) usable - hardware "
+				    "replication needs at least 2, new "
+				    "flows will offload to a single port "
+				    "with no duplication until another "
+				    "member returns", itf->ifname,
+				    new_num_members, found);
+			else if (new_num_members < found)
+				cmm_print(CMM_LOG_WARN,
+				    "lagg: %s broadcast mode: %d of %d "
+				    "members usable - hardware replication "
+				    "still active but running below full "
+				    "membership", itf->ifname,
+				    new_num_members, found);
+			else
+				cmm_print(CMM_LOG_INFO,
+				    "lagg: %s broadcast mode: %d of %d "
+				    "members usable - hardware replication "
+				    "active", itf->ifname, new_num_members,
+				    found);
+		}
+	}
 	else if (proto_changed)
 		cmm_print(CMM_LOG_INFO,
 		    "lagg: %s protocol changed (%u -> %u)",
