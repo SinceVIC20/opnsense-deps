@@ -760,7 +760,28 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 			}
 			cur = cur->vlan_info.parent;
 		} else if (cur->if_flags & IF_TYPE_LAGG) {
-			cur = cur->lagg_info.parent;
+			/* laggproto lacp/loadbalance can send a given
+			 * flow's traffic out any member port - pinning
+			 * every flow to lagg_info.parent starves every
+			 * other member and disagrees with whatever the
+			 * switch's own LACP hash decided, which is
+			 * exactly the "LAGG passes no traffic" failure
+			 * mode. FreeBSD's own hash (m_ether_tcpip_hash)
+			 * can't be reproduced here - its key is a
+			 * per-boot arc4random() value never exposed
+			 * outside the kernel - so this hashes the same
+			 * 5-tuple against the member list instead: not
+			 * bit-identical to the software path's choice,
+			 * but it spreads flows across every currently
+			 * active member the same way loadbalance/lacp
+			 * are supposed to, and failover (one member)
+			 * degenerates to the old fixed-parent behavior
+			 * for free. */
+			if (cur->lagg_info.num_members > 0)
+				cur = cur->lagg_info.members[
+				    hash % cur->lagg_info.num_members];
+			else
+				cur = cur->lagg_info.parent;
 		} else if (cur->if_flags & IF_TYPE_PPPOE) {
 			l2_info->add_pppoe_hdr = 1;
 			l2_info->pppoe_sess_id = cur->pppoe_info.session_id;

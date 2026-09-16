@@ -50,6 +50,19 @@ cmm_lagg_register(struct cmm_global *g, struct cmm_interface *itf)
 		    itf->ifname);
 		return (0);
 	}
+	if (itf->lagg_proto == LAGG_PROTO_BROADCAST) {
+		/* Hardware offload picks one forwarding action per flow;
+		 * broadcast mode's whole point is duplicating every packet
+		 * to every member port, which can't be expressed that way.
+		 * Leave it on the software path, where lagg_bcast_start()
+		 * already does real duplication correctly, rather than
+		 * silently offloading it onto a single member port and
+		 * quietly dropping the "send everywhere" behavior. */
+		cmm_print(CMM_LOG_INFO,
+		    "lagg: skip %s — laggproto broadcast can't be hardware "
+		    "offloaded, staying on the software path", itf->ifname);
+		return (0);
+	}
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.action = FPP_ACTION_REGISTER;
@@ -149,14 +162,29 @@ cmm_lagg_failover(struct cmm_global *g, struct cmm_interface *itf)
 	char new_members[8][IFNAMSIZ];
 	int new_num_members = 0;
 	int current_still_active = 0;
+	/* DISTRIBUTING is LACP's own signal that a port is actually
+	 * cleared to carry egress traffic - a port can be link-up and
+	 * mid-LACPDU-negotiation (ACTIVE) without DISTRIBUTING yet, and
+	 * the switch drops frames sent out a port it hasn't finished
+	 * bringing into the aggregate. lacp_isactive() only means "joined
+	 * to the active aggregator", a weaker, earlier condition than
+	 * lacp_isdistributing() - so for LACP, ACTIVE alone isn't safe
+	 * to treat as "ready to send". failover/loadbalance/roundrobin
+	 * never set DISTRIBUTING at all (if_lagg.c: "LACP has a different
+	 * definition of active"), so for those protocols ACTIVE is
+	 * already the right and only signal. */
+	int lagg_flags_mask = (ra.ra_proto == LAGG_PROTO_LACP) ?
+	    LAGG_PORT_DISTRIBUTING : LAGG_PORT_ACTIVE;
 
 	for (i = 0; i < found; i++) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "lagg: %s port[%d]=%s flags=0x%x",
 		    itf->ifname, i, rp[i].rp_portname, rp[i].rp_flags);
 
-		/* Collect all members */
-		if (new_num_members < 8)
+		/* Only collect members currently cleared to carry egress
+		 * traffic - see lagg_flags_mask comment above. */
+		if (new_num_members < 8 &&
+		    (rp[i].rp_flags & lagg_flags_mask))
 			strlcpy(new_members[new_num_members++],
 			    rp[i].rp_portname, IFNAMSIZ);
 
@@ -190,7 +218,13 @@ cmm_lagg_failover(struct cmm_global *g, struct cmm_interface *itf)
 		}
 	}
 
-	if (current_still_active && !members_changed) {
+	/* A laggproto change alone (same ports, same active port - e.g.
+	 * loadbalance -> broadcast) has to force a re-register too, since
+	 * cmm_lagg_register()'s decision to offload at all depends on
+	 * lagg_proto, not just on which ports exist. */
+	int proto_changed = (ra.ra_proto != itf->lagg_proto);
+
+	if (current_still_active && !members_changed && !proto_changed) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "lagg: %s current=%s still ACTIVE, members unchanged",
 		    itf->ifname, itf->lagg_active_port);
@@ -210,6 +244,10 @@ cmm_lagg_failover(struct cmm_global *g, struct cmm_interface *itf)
 		cmm_print(CMM_LOG_INFO,
 		    "lagg: %s member set changed (%d -> %d members)",
 		    itf->ifname, itf->lagg_num_members, new_num_members);
+	else if (proto_changed)
+		cmm_print(CMM_LOG_INFO,
+		    "lagg: %s protocol changed (%u -> %u)",
+		    itf->ifname, itf->lagg_proto, ra.ra_proto);
 
 	/* Deregister the old LAGG mapping from CDX */
 	cmm_lagg_deregister(g, itf);
@@ -231,6 +269,7 @@ cmm_lagg_failover(struct cmm_global *g, struct cmm_interface *itf)
 	itf->lagg_num_members = new_num_members;
 	for (i = 0; i < new_num_members; i++)
 		strlcpy(itf->lagg_members[i], new_members[i], IFNAMSIZ);
+	itf->lagg_proto = ra.ra_proto;
 
 	/* Re-register with the updated member set (if any active) */
 	if (itf->lagg_active_port[0] != '\0')
@@ -266,6 +305,16 @@ cmm_lagg_member_check(struct cmm_global *g, struct cmm_interface *member_itf)
 	cmm_itf_foreach_lagg(g, lagg_member_check_cb);
 }
 
+void
+cmm_lagg_recheck_all(struct cmm_global *g)
+{
+	/* Same re-probe as cmm_lagg_member_check(), but run
+	 * unconditionally from the maintenance timer instead of only on
+	 * a member port's link-state change - see the comment on this
+	 * function's declaration for why that event alone isn't enough. */
+	cmm_itf_foreach_lagg(g, lagg_member_check_cb);
+}
+
 int
 cmm_lagg_init(struct cmm_global *g)
 {
@@ -295,8 +344,25 @@ cmm_lagg_notify(struct cmm_global *g, struct cmm_interface *itf)
 	if (!(itf->itf_flags & ITF_F_LAGG))
 		return;
 
-	if ((itf->flags & IFF_UP) && !(itf->itf_flags & ITF_F_FPP_LAGG))
+	if ((itf->flags & IFF_UP) && !(itf->itf_flags & ITF_F_FPP_LAGG)) {
 		cmm_lagg_register(g, itf);
-	else if (!(itf->flags & IFF_UP) && (itf->itf_flags & ITF_F_FPP_LAGG))
+		return;
+	}
+	if (!(itf->flags & IFF_UP) && (itf->itf_flags & ITF_F_FPP_LAGG)) {
 		cmm_lagg_deregister(g, itf);
+		return;
+	}
+
+	/* Already up and registered (or down and already deregistered) -
+	 * this call can still mean something changed underneath: LACP
+	 * fires if_link_state_change() on the LAGG itself whenever a
+	 * member's DISTRIBUTING state flips (lacp_enable/disable_
+	 * distributing() in ieee8023ad_lacp.c), which is exactly the
+	 * signal cmm_lagg_failover() needs to re-probe membership. This
+	 * is what actually catches most laggproto-lacp membership
+	 * changes quickly; the maintenance-timer backstop
+	 * (cmm_lagg_recheck_all()) exists for the rarer case a bare
+	 * SIOCSLAGG protocol switch produces no event here at all. */
+	if (itf->itf_flags & ITF_F_FPP_LAGG)
+		cmm_lagg_failover(g, itf);
 }

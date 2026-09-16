@@ -30,6 +30,7 @@
 #include "cmm_route.h"
 #include "cmm_neigh.h"
 #include "cmm_itf.h"
+#include "cmm_lagg.h"
 #include "cmm_fe.h"
 #include "cmm_bridge.h"
 #include "cmm_deny.h"
@@ -896,6 +897,11 @@ cmm_conn_maintenance(struct cmm_global *g)
 	/* Catch gateway MAC changes before retrying offload, so anything
 	 * just invalidated re-offloads in this same pass. */
 	cmm_route_check_neigh_changes(g);
+
+	/* Catch laggproto changes with no triggering event (see
+	 * cmm_lagg_recheck_all()'s comment) before retrying offload, same
+	 * reasoning as the MAC-change check above. */
+	cmm_lagg_recheck_all(g);
 
 	retried = cmm_conn_retry_rejected(g);
 
