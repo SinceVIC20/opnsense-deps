@@ -322,7 +322,8 @@ dpa_add_vlan_if(char *name, struct _itf *itf, struct _itf *phys_itf,
 
 int
 dpa_add_lagg_if(char *name, struct _itf *itf, struct _itf *phys_itf,
-    uint8_t *mac_addr, POnifDesc *member_onifs, int num_members)
+    uint8_t *mac_addr, POnifDesc *member_onifs, int num_members,
+    uint32_t lagg_proto)
 {
 	struct dpa_iface_info *iface, *parent, *mem;
 	int i;
@@ -344,6 +345,7 @@ dpa_add_lagg_if(char *name, struct _itf *itf, struct _itf *phys_itf,
 	iface->mtu = parent->mtu;
 
 	iface->lagg_info.parent = parent;
+	iface->lagg_info.lagg_proto = lagg_proto;
 	if (mac_addr)
 		memcpy(iface->lagg_info.mac_addr, mac_addr, 6);
 
@@ -412,6 +414,58 @@ dpa_get_lagg_member_ports(uint32_t itf_index, uint32_t *port_ids,
 			port_ids[*count] = eth_parent->eth_info.portid;
 			(*count)++;
 		}
+	}
+
+	spin_unlock(&dpa_devlist_lock);
+	return (0);
+}
+
+/* ================================================================
+ * dpa_get_broadcast_lagg_members — member port names for a
+ * `laggproto broadcast` LAGG in this route's egress hierarchy.
+ *
+ * Same ancestry walk as dpa_get_lagg_member_ports(), but only matches
+ * when the LAGG found is actually in broadcast mode, and returns
+ * member interface names (for get_onif_by_name()-based per-member TX
+ * resolution in cdx_ehash.c) rather than resolved port IDs. Used to
+ * build a per-flow REPLICATE_PKT chain: one classifier entry per LAGG
+ * member, each carrying the flow's own real L2/L3 info, since
+ * FreeBSD's own lagg_bcast_start() (if_lagg.c) clones one already-
+ * resolved frame unchanged to every member port rather than
+ * re-addressing it per port.
+ * ================================================================ */
+int
+dpa_get_broadcast_lagg_members(uint32_t itf_index,
+    char names[][IF_NAME_SIZE], int max, int *count)
+{
+	struct dpa_iface_info *iface;
+	int i;
+
+	spin_lock(&dpa_devlist_lock);
+
+	iface = devman_find_by_itfid(itf_index);
+	while (iface != NULL) {
+		if (iface->if_flags & IF_TYPE_LAGG)
+			break;
+		if (iface->if_flags & IF_TYPE_VLAN)
+			iface = iface->vlan_info.parent;
+		else
+			break;
+	}
+
+	if (iface == NULL || !(iface->if_flags & IF_TYPE_LAGG) ||
+	    iface->lagg_info.lagg_proto != CDX_LAGG_PROTO_BROADCAST ||
+	    iface->lagg_info.num_members < 2) {
+		spin_unlock(&dpa_devlist_lock);
+		return (-1);
+	}
+
+	*count = 0;
+	for (i = 0; i < iface->lagg_info.num_members && *count < max; i++) {
+		strlcpy(names[*count],
+		    (char *)iface->lagg_info.members[i]->name,
+		    IF_NAME_SIZE);
+		(*count)++;
 	}
 
 	spin_unlock(&dpa_devlist_lock);
@@ -760,7 +814,28 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 			}
 			cur = cur->vlan_info.parent;
 		} else if (cur->if_flags & IF_TYPE_LAGG) {
-			cur = cur->lagg_info.parent;
+			/* laggproto lacp/loadbalance can send a given
+			 * flow's traffic out any member port - pinning
+			 * every flow to lagg_info.parent starves every
+			 * other member and disagrees with whatever the
+			 * switch's own LACP hash decided, which is
+			 * exactly the "LAGG passes no traffic" failure
+			 * mode. FreeBSD's own hash (m_ether_tcpip_hash)
+			 * can't be reproduced here - its key is a
+			 * per-boot arc4random() value never exposed
+			 * outside the kernel - so this hashes the same
+			 * 5-tuple against the member list instead: not
+			 * bit-identical to the software path's choice,
+			 * but it spreads flows across every currently
+			 * active member the same way loadbalance/lacp
+			 * are supposed to, and failover (one member)
+			 * degenerates to the old fixed-parent behavior
+			 * for free. */
+			if (cur->lagg_info.num_members > 0)
+				cur = cur->lagg_info.members[
+				    hash % cur->lagg_info.num_members];
+			else
+				cur = cur->lagg_info.parent;
 		} else if (cur->if_flags & IF_TYPE_PPPOE) {
 			l2_info->add_pppoe_hdr = 1;
 			l2_info->pppoe_sess_id = cur->pppoe_info.session_id;

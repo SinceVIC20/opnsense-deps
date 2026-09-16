@@ -346,6 +346,35 @@ struct hw_ct_sibling {
 	uint32_t port_id;
 };
 
+/*
+ * REPLICATE_PKT chain member for one flow through a laggproto
+ * broadcast LAGG. Unlike hw_ct_sibling (independent, individually-
+ * matched alternate keys - only one ever matches a real packet), these
+ * are physically chained (en_exthash_tbl_entry->next / hashentry.
+ * next_entry_hi/lo) so FMan can walk from the primary entry's
+ * REPLICATE_PKT to all of them for one matched packet - the same way
+ * multicast listener entries are chained off a classifier entry
+ * (cdx_mc_freebsd.c), and like those, a replica is never independently
+ * key-matched/added to a hash table, so there's no td/index to delete
+ * it by. Each carries this flow's own real destination MAC/L2 info -
+ * FreeBSD's own lagg_bcast_start() (if_lagg.c) clones the same
+ * already-resolved frame unchanged to every member port, so one
+ * flow's one real MAC is correct for every replica, the same way it's
+ * correct for the primary entry.
+ *
+ * Scoped and owned entirely by the flow: built alongside the primary
+ * entry, freed or quarantined together with it based on the primary's
+ * own delete outcome (delete_entry_from_classif_table()) - mirroring
+ * cdx_free_exthash_mcast_members()/mc_quarantine_members()'s reasoning
+ * that a listener/replica is only ever provably out of hardware reach
+ * once the classifier entry pointing at it has been deleted with a
+ * proven HC barrier, never on its own.
+ */
+struct hw_ct_replica {
+	struct hw_ct_replica *next;
+	void *handle;	/* struct en_exthash_tbl_entry* */
+};
+
 /* hardware connection tracker info */
 struct hw_ct {
 	void *fm_ctx;
@@ -362,6 +391,7 @@ struct hw_ct {
 	uint64_t reset_pkts;
 	uint64_t reset_bytes;
 	struct hw_ct_sibling *siblings; /* extra port entries for LAGG */
+	struct hw_ct_replica *replicas; /* REPLICATE_PKT chain for laggproto broadcast */
 };
 
 //uncomment to include flow timestamps

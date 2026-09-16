@@ -241,6 +241,7 @@ itf_detect_lagg(struct cmm_interface *itf, int sd)
 		return;		/* Not a LAGG interface */
 
 	itf->itf_flags |= ITF_F_LAGG;
+	itf->lagg_proto = ra.ra_proto;
 
 	if (ra.ra_ports < 1) {
 		cmm_print(CMM_LOG_INFO,
