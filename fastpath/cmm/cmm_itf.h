@@ -71,6 +71,7 @@ struct cmm_interface {
 	char			lagg_active_port[IFNAMSIZ];
 	char			lagg_members[8][IFNAMSIZ];
 	int			lagg_num_members;
+	u_int			lagg_proto;	/* LAGG_PROTO_*, from SIOCGLAGG */
 	/* PPPoE state (valid when ITF_F_PPPOE set) */
 	uint16_t		pppoe_session_id;
 	uint8_t			pppoe_peer_mac[ETHER_ADDR_LEN];
