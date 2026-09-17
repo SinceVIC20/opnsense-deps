@@ -42,7 +42,7 @@ SETSDIR?=	/usr/local/opnsense/build/${OPS_SETTINGS}/aarch64/sets
 KMOD_ARGS=	SYSDIR=${SRCDIR}/sys \
 		KERNBUILDDIR=${KERNBUILDDIR} \
 		MACHINE=arm64 MACHINE_ARCH=aarch64 \
-		CC="cc --target=aarch64-unknown-freebsd14.3" LD=ld.lld
+		CC="cc --target=aarch64-unknown-freebsd15.1" LD=ld.lld
 
 # Local build directory for userspace components
 BUILDDIR?=	${OPSDIR}/_build
