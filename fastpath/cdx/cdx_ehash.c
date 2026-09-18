@@ -1177,7 +1177,7 @@ int insert_entry_in_classif_table(PCtEntry entry)
 	entry->ct = NULL;
 	tbl_entry = NULL;	
 
-	info = kzalloc(sizeof(struct ins_entry_info), 0);
+	info = kzalloc(sizeof(struct ins_entry_info), GFP_KERNEL);
 	if (!info)
 		return FAILURE;
 	info->entry = entry;
@@ -1451,7 +1451,7 @@ int insert_mcast_entry_in_classif_table(struct _tCtEntry *entry,
 	entry->ct = NULL;
 	tbl_entry = NULL;	
 	
-	info = kzalloc(sizeof(struct ins_entry_info), 0);
+	info = kzalloc(sizeof(struct ins_entry_info), GFP_KERNEL);
 	if (!info)
 		return FAILURE;
 	
@@ -1730,7 +1730,7 @@ int insert_pppoe_relay_entry_in_classif_table(pPPPoE_Info entry)  /* struct _tPP
 	struct hw_ct *ct = NULL;
 	int retval;
 
-	info = kzalloc(sizeof(struct ins_entry_info), 0);
+	info = kzalloc(sizeof(struct ins_entry_info), GFP_KERNEL);
 	if(!info)
 	{
 		DPA_ERROR("%s::unable to allocate mem for info\n", __FUNCTION__);
@@ -1954,7 +1954,7 @@ int add_l2flow_to_hw(struct L2Flow_entry *entry)
 		return FAILURE;
 	}
 
-	info = kzalloc(sizeof(struct ins_entry_info), 0);
+	info = kzalloc(sizeof(struct ins_entry_info), GFP_KERNEL);
 	if (!info) {
 		DPA_ERROR("%s::unable to allocate mem for info\n",
 				__FUNCTION__);
@@ -4159,7 +4159,7 @@ int cdx_create_rtp_qos_slowpath_flow(PSockEntry pSocket)
 
 	tbl_entry = NULL;	
 
-	info = kzalloc(sizeof(struct ins_entry_info), 0);
+	info = kzalloc(sizeof(struct ins_entry_info), GFP_KERNEL);
 	if (!info)
 	{
 		DPA_ERROR("%s(%d)::unable to create memory.\n",__FUNCTION__, __LINE__);
@@ -4312,7 +4312,7 @@ int cdx_create_rtp_conn_in_classif_table (PRTPflow pFlow, PSockEntry pFromSocket
 		return FAILURE;
 	}
 
-	info = kzalloc(sizeof(struct ins_entry_info), 0);
+	info = kzalloc(sizeof(struct ins_entry_info), GFP_KERNEL);
 	if (!info)
 		return FAILURE;
 
