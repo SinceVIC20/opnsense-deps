@@ -128,7 +128,7 @@ int
 alloc_iface_stats(uint32_t dev_type, struct dpa_iface_info *iface)
 {
 
-	iface->last_stats = kzalloc(sizeof(struct iface_stats), 0);
+	iface->last_stats = kzalloc(sizeof(struct iface_stats), GFP_KERNEL);
 	if (iface->last_stats == NULL) {
 		DPA_ERROR("cdx: alloc_iface_stats: "
 		    "memory alloc failed for last_stats\n");
