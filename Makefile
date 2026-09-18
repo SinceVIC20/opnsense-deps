@@ -333,11 +333,9 @@ image:
 	fi
 	@echo "==> Step 3: Building modules, userspace, and package"
 	${MAKE} -C ${OPSDIR} -j${_NCPU} package
-	@echo "==> Step 5: Assembling ZFS image"
+	@echo "==> Step 5: Assembling UFS image"
 	rm -f ${IMAGESDIR}/OPNsense-*-GATEWAY.img \
 		${IMAGESDIR}/OPNsense-*-GATEWAY.img.gz
-	cp ${OPSDIR}/mk-image.sh ${TOOLSDIR}/build/arm.sh
-	cp ${OPSDIR}/tools/mkgpt.py ${TOOLSDIR}/build/mkgpt.py
 	${MAKE} -C ${TOOLSDIR} arm-5G \
 		DEVICE=GATEWAY SETTINGS=${OPS_SETTINGS} \
 		TOOLSDIR=${TOOLSDIR} SRCDIR=${SRCDIR}
