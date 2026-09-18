@@ -96,6 +96,16 @@ cat > ${STAGEDIR}/etc/fstab << EOF
 /dev/gpt/boot		/boot/msdos	msdosfs	rw,noatime	0	0
 EOF
 
+# This image is always built at a fixed size (IMGSIZE), regardless of
+# the real target eMMC's actual capacity. /firstboot tells FreeBSD's
+# stock growfs (rc.d/growfs, growfs_enable=YES set in rc.conf.local) to
+# grow the ZFS partition and pool to fill the real disk on first real
+# boot. Without this, the GPT backup header and partition 2 stay sized
+# for the build image, which GEOM's own auto-recovery will otherwise
+# try to "fix" itself at every boot -- and that unordered fix can
+# corrupt the pool, unlike growfs's own recover-then-resize sequence.
+touch ${STAGEDIR}/firstboot
+
 # ---------------------------------------------------------------
 # Populate FAT boot partition
 # ---------------------------------------------------------------
