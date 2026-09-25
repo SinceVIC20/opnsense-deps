@@ -680,11 +680,10 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 				conn->rep_route = NULL;
 			}
 
-			/* Reply direction's route-to override comes from
-			 * this companion state, not the original one - it's
-			 * an independent pf state with its own route-to
-			 * decision. */
-			conn->rt_ifindex_rep = ev->rt_ifindex;
+			/* Don't apply this event's rt_ifindex to the reply
+			 * direction. FreeBSD pf uses one state per connection,
+			 * so this is the same state's outbound route-to hint,
+			 * not an independent decision for the reply path. */
 
 			/* Save NAT companion PF state ID */
 			conn->pf_id_nat = ev->id;
@@ -713,7 +712,8 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 	conn->pf_direction = ev->direction;
 	strlcpy(conn->ifname, ev->ifname, sizeof(conn->ifname));
 	conn->rt_ifindex = ev->rt_ifindex;
-	conn->rt_ifindex_rep = ev->rt_ifindex;
+	/* rt_ifindex_rep stays 0 (calloc) - the reply path resolves via
+	 * the normal FIB, not this connection's outbound route-to hint. */
 	conn->hash_entry.next = NULL;
 	conn->hash_entry.prev = NULL;
 
