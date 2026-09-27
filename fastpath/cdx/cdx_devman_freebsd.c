@@ -765,6 +765,7 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
     PRouteEntry tnl_route, uint32_t *qosmark, uint32_t hash)
 {
 	struct dpa_iface_info *iface, *cur;
+	uint8_t *src_mac = NULL;
 	int depth;
 
 	if (rt_entry == NULL || rt_entry->itf == NULL)
@@ -815,6 +816,9 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 			}
 			cur = cur->vlan_info.parent;
 		} else if (cur->if_flags & IF_TYPE_LAGG) {
+			/* Send from the LAGG's MAC, which the far end
+			 * knows us by, not the member port's own. */
+			src_mac = cur->lagg_info.mac_addr;
 			/* lacp and loadbalance may send each flow out
 			 * any member cmm listed (for lacp, only the ones
 			 * DISTRIBUTING), and the far end accepts on any
@@ -859,9 +863,11 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 			/* Reached physical port — extract TX info */
 			struct eth_iface_info *eth = &cur->eth_info;
 
-			/* L2 header: dst MAC from route, src MAC from port */
+			/* L2 header: dst MAC from route, src MAC from
+			 * the LAGG if we came through one, else the port */
 			memcpy(l2_info->l2hdr, rt_entry->dstmac, 6);
-			memcpy(l2_info->l2hdr + 6, eth->mac_addr, 6);
+			memcpy(l2_info->l2hdr + 6,
+			    src_mac != NULL ? src_mac : eth->mac_addr, 6);
 
 			l2_info->mtu = cur->mtu;
 
