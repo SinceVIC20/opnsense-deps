@@ -814,17 +814,19 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 			}
 			cur = cur->vlan_info.parent;
 		} else if (cur->if_flags & IF_TYPE_LAGG) {
-			/* Always use the one active port, same as
-			 * failover mode. A prior attempt hashed each
-			 * flow across every member instead, but that
-			 * hash has no relationship to the switch's own
-			 * LACP hash - CDX and the switch would often
-			 * disagree on which port a flow belongs on,
-			 * and the switch drops it when they do.
-			 * Confirmed on real hardware: LAGG passes no
-			 * traffic in lacp mode with the per-flow hash,
-			 * works fine pinned to one port. */
-			cur = cur->lagg_info.parent;
+			/* lacp and loadbalance may send each flow out
+			 * any member cmm listed (for lacp, only the ones
+			 * DISTRIBUTING), and the far end accepts on any
+			 * of them, so spread flows by hash.  failover
+			 * must stay on the active port. */
+			if ((cur->lagg_info.lagg_proto == CDX_LAGG_PROTO_LACP ||
+			    cur->lagg_info.lagg_proto ==
+			    CDX_LAGG_PROTO_LOADBALANCE) &&
+			    cur->lagg_info.num_members > 1)
+				cur = cur->lagg_info.members[
+				    hash % cur->lagg_info.num_members];
+			else
+				cur = cur->lagg_info.parent;
 		} else if (cur->if_flags & IF_TYPE_PPPOE) {
 			l2_info->add_pppoe_hdr = 1;
 			l2_info->pppoe_sess_id = cur->pppoe_info.session_id;
