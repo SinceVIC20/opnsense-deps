@@ -33,37 +33,42 @@
 static struct list_head route_hash[ROUTE_HASH_TOTAL];
 
 static inline unsigned int
-route_hash_index(sa_family_t af, const void *dst, int oif_hint)
+route_hash_index(sa_family_t af, const void *dst, int oif_hint, int iif)
 {
+	uint32_t seed = (uint32_t)oif_hint ^ ((uint32_t)iif << 16);
+
 	if (af == AF_INET)
-		return (jhash(dst, 4, (uint32_t)oif_hint) % ROUTE_HASH_SIZE);
+		return (jhash(dst, 4, seed) % ROUTE_HASH_SIZE);
 	else
-		return (jhash(dst, 16, (uint32_t)oif_hint) % ROUTE_HASH_SIZE)
+		return (jhash(dst, 16, seed) % ROUTE_HASH_SIZE)
 		    + ROUTE_HASH_SIZE;
 }
 
 /*
- * Find a cached route by (family, dst, oif_hint).  oif_hint is part
+ * Find a cached route by (family, dst, oif_hint, iif).  oif_hint is part
  * of the key so a route-to'd connection never collides with a plain
  * default-routed one to the same destination - they need genuinely
  * different routes, not just different metadata on a shared one.
+ * iif is part of it for the same reason: CDX installs a route's flows
+ * on its input port, so flows arriving on different interfaces need
+ * their own route (ASK keys routes on iifindex too).
  */
 static struct cmm_route *
-route_find(sa_family_t af, const void *dst, int oif_hint)
+route_find(sa_family_t af, const void *dst, int oif_hint, int iif)
 {
 	struct list_head *bucket, *pos;
 	struct cmm_route *rt;
 	unsigned int h;
 	int alen;
 
-	h = route_hash_index(af, dst, oif_hint);
+	h = route_hash_index(af, dst, oif_hint, iif);
 	bucket = &route_hash[h];
 	alen = (af == AF_INET) ? 4 : 16;
 
 	for (pos = list_first(bucket); pos != bucket; pos = list_next(pos)) {
 		rt = container_of(pos, struct cmm_route, entry);
 		if (rt->family == af && rt->oif_hint == oif_hint &&
-		    memcmp(rt->dst, dst, alen) == 0)
+		    rt->iif_index == iif && memcmp(rt->dst, dst, alen) == 0)
 			return (rt);
 	}
 	return (NULL);
@@ -242,13 +247,13 @@ cmm_route_alloc_id(struct cmm_global *g)
 
 struct cmm_route *
 cmm_route_get(struct cmm_global *g, sa_family_t af, const void *dst,
-    int oif_hint)
+    int oif_hint, int iif)
 {
 	struct cmm_route *rt;
 	unsigned int h;
 	int alen;
 
-	rt = route_find(af, dst, oif_hint);
+	rt = route_find(af, dst, oif_hint, iif);
 	if (rt != NULL) {
 		rt->refcount++;
 		return (rt);
@@ -263,6 +268,7 @@ cmm_route_get(struct cmm_global *g, sa_family_t af, const void *dst,
 	rt->family = af;
 	memcpy(rt->dst, dst, alen);
 	rt->oif_hint = oif_hint;
+	rt->iif_index = iif;
 	rt->fpp_id = cmm_route_alloc_id(g);
 	if (rt->fpp_id == 0) {
 		cmm_print(CMM_LOG_ERR, "route: route ID space exhausted");
@@ -272,7 +278,7 @@ cmm_route_get(struct cmm_global *g, sa_family_t af, const void *dst,
 	rt->entry.next = NULL;
 	rt->entry.prev = NULL;
 
-	h = route_hash_index(af, dst, oif_hint);
+	h = route_hash_index(af, dst, oif_hint, iif);
 	list_add(&route_hash[h], &rt->entry);
 
 	if (route_resolve(g, rt) < 0) {

@@ -177,6 +177,22 @@ resolve_iif_index(struct cmm_route *opp_route)
 }
 
 /*
+ * Swap *rtp for the route to the same destination keyed on iif.
+ */
+static int
+route_rekey(struct cmm_global *g, struct cmm_route **rtp, int iif)
+{
+	struct cmm_route *old = *rtp, *rt;
+
+	rt = cmm_route_get(g, old->family, old->dst, old->oif_hint, iif);
+	if (rt == NULL)
+		return (-1);
+	*rtp = rt;
+	cmm_route_put(old);
+	return (0);
+}
+
+/*
  * Try to offload a connection:
  * 1. Look up routes for both directions
  * 2. Resolve next-hop neighbors (retry-safe)
@@ -191,7 +207,7 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 	/* Look up route for original direction (dst = orig_daddr) */
 	if (conn->orig_route == NULL)
 		conn->orig_route = cmm_route_get(g, conn->af,
-		    conn->orig_daddr, conn->rt_ifindex);
+		    conn->orig_daddr, conn->rt_ifindex, 0);
 	if (conn->orig_route == NULL) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "conn: no route for original direction");
@@ -211,7 +227,7 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 	 */
 	if (conn->rep_route == NULL)
 		conn->rep_route = cmm_route_get(g, conn->af,
-		    conn->orig_saddr, conn->rt_ifindex_rep);
+		    conn->orig_saddr, conn->rt_ifindex_rep, 0);
 	if (conn->rep_route == NULL) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "conn: no route for reply direction");
@@ -260,12 +276,22 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 	}
 
 	/*
-	 * Set input interface for each route: the input for one direction
-	 * is the output of the opposite direction.  CDX needs this to
-	 * install flow classification entries on the correct FMan RX port.
+	 * The input for one direction is the output of the opposite
+	 * direction.  CDX installs flows on the route's input port, so
+	 * switch each direction to the route keyed on its input interface
+	 * rather than setting it on a route other connections share.
 	 */
-	conn->orig_route->iif_index = resolve_iif_index(conn->rep_route);
-	conn->rep_route->iif_index = resolve_iif_index(conn->orig_route);
+	{
+		int iif_orig = resolve_iif_index(conn->rep_route);
+		int iif_rep = resolve_iif_index(conn->orig_route);
+
+		if (conn->orig_route->iif_index != iif_orig &&
+		    route_rekey(g, &conn->orig_route, iif_orig) != 0)
+			return (-1);
+		if (conn->rep_route->iif_index != iif_rep &&
+		    route_rekey(g, &conn->rep_route, iif_rep) != 0)
+			return (-1);
+	}
 
 	/* Send routes to CDX (idempotent if already programmed) */
 	if (!conn->orig_route->fpp_programmed && !conn->orig_route->fpp_rejected)
