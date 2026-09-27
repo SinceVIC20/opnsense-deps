@@ -452,6 +452,8 @@ main(int argc, char *argv[])
 					cmm_conn_stats_sync(g);
 				else if (events[i].ident == 6)
 					cmm_conn_maintenance(g);
+				else if (events[i].ident == 7)
+					cmm_lagg_settle_tick(g);
 			} else if (events[i].udata ==
 			    (void *)(uintptr_t)1) {
 				/* Control socket: new connection */

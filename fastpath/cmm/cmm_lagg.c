@@ -17,6 +17,7 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/event.h>
 #include <net/if.h>
 #include <net/ethernet.h>
 #include <net/if_lagg.h>
@@ -202,9 +203,18 @@ cmm_lagg_failover(struct cmm_global *g, struct cmm_interface *itf)
 	    LAGG_PORT_DISTRIBUTING : LAGG_PORT_ACTIVE;
 
 	for (i = 0; i < found; i++) {
+		struct cmm_interface *port;
+
 		cmm_print(CMM_LOG_DEBUG,
 		    "lagg: %s port[%d]=%s flags=0x%x",
 		    itf->ifname, i, rp[i].rp_portname, rp[i].rp_flags);
+
+		/* LACP clears a dead port's flags a moment after its link
+		 * goes down, so they can still look usable here.  Skip ports
+		 * without link, the same test lagg itself uses. */
+		port = cmm_itf_find_by_name(rp[i].rp_portname);
+		if (port != NULL && port->link_state != LINK_STATE_UP)
+			continue;
 
 		/* Only collect members currently cleared to carry egress
 		 * traffic - see lagg_flags_mask comment above. */
@@ -355,6 +365,45 @@ lagg_member_check_cb(struct cmm_global *g, struct cmm_interface *lagg_itf)
 	return (0);
 }
 
+/* Seconds of extra re-checks after a member's link changes */
+#define	LAGG_SETTLE_SECS	10
+#define	LAGG_SETTLE_TIMER	7	/* kqueue timer ident, see cmm.c */
+
+static int lagg_settle_left;
+
+/*
+ * A port that gets link only starts carrying traffic once LACP has
+ * negotiated, a few seconds later, and that raises no event.  Re-check
+ * every second for a while so the change is picked up promptly rather
+ * than on the next maintenance pass.
+ */
+static void
+lagg_settle_start(struct cmm_global *g)
+{
+	struct kevent kev;
+
+	if (lagg_settle_left == 0) {
+		EV_SET(&kev, LAGG_SETTLE_TIMER, EVFILT_TIMER, EV_ADD,
+		    NOTE_MSECONDS, 1000, NULL);
+		if (kevent(g->kq, &kev, 1, NULL, 0, NULL) < 0)
+			return;
+	}
+	lagg_settle_left = LAGG_SETTLE_SECS;
+}
+
+void
+cmm_lagg_settle_tick(struct cmm_global *g)
+{
+	struct kevent kev;
+
+	cmm_itf_foreach_lagg(g, lagg_member_check_cb);
+	if (lagg_settle_left > 0 && --lagg_settle_left == 0) {
+		EV_SET(&kev, LAGG_SETTLE_TIMER, EVFILT_TIMER, EV_DELETE,
+		    0, 0, NULL);
+		(void)kevent(g->kq, &kev, 1, NULL, 0, NULL);
+	}
+}
+
 void
 cmm_lagg_member_check(struct cmm_global *g, struct cmm_interface *member_itf)
 {
@@ -368,6 +417,7 @@ cmm_lagg_member_check(struct cmm_global *g, struct cmm_interface *member_itf)
 	/* Trigger failover check on all LAGGs — it's cheap (SIOCGLAGG
 	 * per LAGG) and failover() is a no-op if nothing changed. */
 	cmm_itf_foreach_lagg(g, lagg_member_check_cb);
+	lagg_settle_start(g);
 }
 
 void
