@@ -119,6 +119,8 @@ struct vlan_iface_info {
  * vendor header doesn't need to pull in FreeBSD's LAGG headers just to
  * compare a protocol number. Kept in sync by hand - if_lagg.h defines
  * this as a small, stable enum unlikely to renumber. */
+#define CDX_LAGG_PROTO_LOADBALANCE	3
+#define CDX_LAGG_PROTO_LACP		4
 #define CDX_LAGG_PROTO_BROADCAST	5
 
 //lagg (link aggregation) device information
