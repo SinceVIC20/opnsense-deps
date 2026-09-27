@@ -512,7 +512,9 @@ restart_loop:
 			{
 				PRouteEntry pRtEntry = pCtEntry->pRtEntry;
 
-				if (pRtEntry->itf->index == if_index)
+				/* itf is NULL on a route quarantined by an
+				 * earlier interface removal. */
+				if (pRtEntry->itf && pRtEntry->itf->index == if_index)
 				{
 					if (IS_IPV6(pCtEntry))
 						rc = IPv6_delete_CTpair(pCtEntry);
@@ -1682,7 +1684,9 @@ static int IPV4_RT_Get_Hash_Snapshot(int rt_hash_index,int rt_total_entries, PRt
 	{
 		COPY_MACADDR(pSnapshot->macAddr, pRtEntry->dstmac);
 
-		onif_desc = get_onif_by_index(pRtEntry->itf->index);
+		/* A quarantined route has no output interface. */
+		onif_desc = pRtEntry->itf ?
+		    get_onif_by_index(pRtEntry->itf->index) : NULL;
 		if (onif_desc)
 			strcpy((char *)pSnapshot->outputDevice, (char *)onif_desc->name);
 		else
