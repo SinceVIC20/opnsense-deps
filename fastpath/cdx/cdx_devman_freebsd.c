@@ -305,8 +305,9 @@ dpa_add_vlan_if(char *name, struct _itf *itf, struct _itf *phys_itf,
 
 	dpa_add_port_to_list(iface);
 
+	/* vlan_id arrives in network order */
 	DPA_INFO("cdx: devman: registered VLAN %s — itf_id=%u vlan=%u "
-	    "parent=%s\n", name, iface->itf_id, vlan_id,
+	    "parent=%s\n", name, iface->itf_id, ntohs(vlan_id),
 	    (char *)parent->name);
 
 	return (0);
