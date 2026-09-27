@@ -37,4 +37,8 @@ void cmm_lagg_member_check(struct cmm_global *g, struct cmm_interface *itf);
  */
 void cmm_lagg_recheck_all(struct cmm_global *g);
 
+/* 1 s timer (kqueue ident 7) armed for a few seconds after a member's
+ * link changes; re-probes every LAGG. */
+void cmm_lagg_settle_tick(struct cmm_global *g);
+
 #endif /* CMM_LAGG_H */
