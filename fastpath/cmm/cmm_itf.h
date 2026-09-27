@@ -100,6 +100,10 @@ int cmm_itf_is_local_addr(sa_family_t af, const void *addr);
 typedef int (*cmm_itf_vlan_fn)(struct cmm_global *, struct cmm_interface *);
 void cmm_itf_foreach_vlan(struct cmm_global *g, cmm_itf_vlan_fn fn);
 
+/* Same, but only the VLANs whose parent is parent_ifindex */
+void cmm_itf_foreach_vlan_of(struct cmm_global *g, int parent_ifindex,
+    cmm_itf_vlan_fn fn);
+
 /* Iterate all tunnel interfaces, calling fn for each with ITF_F_TUNNEL set */
 typedef int (*cmm_itf_tunnel_fn)(struct cmm_global *, struct cmm_interface *);
 void cmm_itf_foreach_tunnel(struct cmm_global *g, cmm_itf_tunnel_fn fn);

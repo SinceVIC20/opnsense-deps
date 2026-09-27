@@ -21,6 +21,7 @@
 #define CONN_F_ORIG_DIR		0x02	/* offload original direction */
 #define CONN_F_REP_DIR		0x04	/* offload reply direction */
 #define CONN_F_HAS_NAT		0x08	/* reply tuples from PF_OUT (NAT) */
+#define CONN_F_CT_FAILED	0x10	/* CDX refused it; retry on maintenance */
 
 struct cmm_conn {
 	struct list_head	hash_entry;	/* hash by original 5-tuple */

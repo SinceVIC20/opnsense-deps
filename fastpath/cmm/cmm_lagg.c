@@ -27,6 +27,8 @@
 #include "cmm_lagg.h"
 #include "cmm_itf.h"
 #include "cmm_route.h"
+#include "cmm_vlan.h"
+#include "cmm_conn.h"
 
 /* LAGG_MAX_PORTS is defined in <net/if_lagg.h> */
 
@@ -114,6 +116,11 @@ cmm_lagg_deregister(struct cmm_global *g, struct cmm_interface *itf)
 	if (!(itf->itf_flags & ITF_F_FPP_LAGG))
 		return (0);
 
+	/* CDX frees the LAGG's entry, so first drop everything that
+	 * points at it: offloaded flows and the VLANs on top. */
+	cmm_route_invalidate_by_oif(g, itf->ifindex);
+	cmm_vlan_deregister_children(g, itf->ifindex);
+
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.action = FPP_ACTION_DEREGISTER;
 	strlcpy(cmd.lagg_ifname, itf->ifname, sizeof(cmd.lagg_ifname));
@@ -128,6 +135,18 @@ cmm_lagg_deregister(struct cmm_global *g, struct cmm_interface *itf)
 	cmm_print(CMM_LOG_INFO, "lagg: deregistered %s", itf->ifname);
 
 	return (0);
+}
+
+/* Register the LAGG, then the VLANs on it, and retry the flows that
+ * were torn down while it was gone. */
+static void
+lagg_bringup(struct cmm_global *g, struct cmm_interface *itf)
+{
+	cmm_lagg_register(g, itf);
+	if (!(itf->itf_flags & ITF_F_FPP_LAGG))
+		return;
+	cmm_vlan_register_children(g, itf->ifindex);
+	(void)cmm_conn_retry_rejected(g);
 }
 
 /*
@@ -297,11 +316,9 @@ cmm_lagg_failover(struct cmm_global *g, struct cmm_interface *itf)
 		    "lagg: %s protocol changed (%u -> %u)",
 		    itf->ifname, itf->lagg_proto, ra.ra_proto);
 
-	/* Deregister the old LAGG mapping from CDX */
+	/* Deregister the old LAGG mapping from CDX (also tears down its
+	 * offloaded flows and VLANs) */
 	cmm_lagg_deregister(g, itf);
-
-	/* Invalidate all routes using this LAGG — tears down offloaded flows */
-	cmm_route_invalidate_by_oif(g, itf->ifindex);
 
 	/* Update the active port */
 	if (!current_still_active) {
@@ -321,7 +338,7 @@ cmm_lagg_failover(struct cmm_global *g, struct cmm_interface *itf)
 
 	/* Re-register with the updated member set (if any active) */
 	if (itf->lagg_active_port[0] != '\0')
-		cmm_lagg_register(g, itf);
+		lagg_bringup(g, itf);
 }
 
 /*
@@ -393,7 +410,7 @@ cmm_lagg_notify(struct cmm_global *g, struct cmm_interface *itf)
 		return;
 
 	if ((itf->flags & IFF_UP) && !(itf->itf_flags & ITF_F_FPP_LAGG)) {
-		cmm_lagg_register(g, itf);
+		lagg_bringup(g, itf);
 		return;
 	}
 	if (!(itf->flags & IFF_UP) && (itf->itf_flags & ITF_F_FPP_LAGG)) {

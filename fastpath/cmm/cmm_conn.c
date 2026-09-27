@@ -201,6 +201,25 @@ route_rekey(struct cmm_global *g, struct cmm_route **rtp, int iif)
  *
  * Safe to call multiple times — skips steps already completed.
  */
+/* CDX can't place flows on a LAGG or VLAN it doesn't have registered,
+ * e.g. while a LAGG is down or has no member up. */
+static int
+itf_offload_ready(int ifindex)
+{
+	struct cmm_interface *itf;
+
+	itf = cmm_itf_find_by_index(ifindex);
+	if (itf == NULL)
+		return (1);
+	if ((itf->itf_flags & ITF_F_LAGG) &&
+	    !(itf->itf_flags & ITF_F_FPP_LAGG))
+		return (0);
+	if ((itf->itf_flags & ITF_F_VLAN) &&
+	    !(itf->itf_flags & ITF_F_FPP_VLAN))
+		return (0);
+	return (1);
+}
+
 static int
 conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 {
@@ -293,6 +312,15 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 			return (-1);
 	}
 
+	/* Each direction's input is the other's output, so this covers
+	 * both ends of the flow. */
+	if (!itf_offload_ready(conn->orig_route->oif_index) ||
+	    !itf_offload_ready(conn->rep_route->oif_index)) {
+		cmm_print(CMM_LOG_DEBUG,
+		    "conn: interface not registered in CDX, not offloading");
+		return (-1);
+	}
+
 	/* Send routes to CDX (idempotent if already programmed) */
 	if (!conn->orig_route->fpp_programmed && !conn->orig_route->fpp_rejected)
 		cmm_fe_route_register(g, conn->orig_route);
@@ -317,8 +345,11 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 			rc = cmm_fe_ct4_register(g, conn);
 		else
 			rc = cmm_fe_ct6_register(g, conn);
-		if (rc == 0)
+		if (rc == 0) {
+			conn->flags &= ~CONN_F_CT_FAILED;
 			conn_offloaded++;
+		} else
+			conn->flags |= CONN_F_CT_FAILED;
 		return (rc);
 	}
 }
@@ -862,6 +893,23 @@ cmm_conn_event(struct cmm_global *g)
  * maintenance pass as a backstop for rejections with no dedicated
  * event (e.g. CDX-side transient failures).
  */
+static void
+conn_clear_ct_failed(void)
+{
+	struct cmm_conn *conn;
+	struct list_head *pos;
+	int i;
+
+	for (i = 0; i < CONN_HASH_SIZE; i++) {
+		for (pos = list_first(&conn_hash[i]);
+		    pos != &conn_hash[i]; pos = list_next(pos)) {
+			conn = container_of(pos, struct cmm_conn,
+			    hash_entry);
+			conn->flags &= ~CONN_F_CT_FAILED;
+		}
+	}
+}
+
 unsigned int
 cmm_conn_retry_rejected(struct cmm_global *g)
 {
@@ -879,7 +927,10 @@ cmm_conn_retry_rejected(struct cmm_global *g)
 		    pos != &conn_hash[i]; pos = list_next(pos)) {
 			conn = container_of(pos, struct cmm_conn,
 			    hash_entry);
-			if (!(conn->flags & CONN_F_OFFLOADED)) {
+			/* Don't hammer CDX with a flow it just refused;
+			 * maintenance clears the flag for the next try. */
+			if (!(conn->flags & CONN_F_OFFLOADED) &&
+			    !(conn->flags & CONN_F_CT_FAILED)) {
 				int was_rejected =
 				    (conn->orig_route != NULL &&
 				    conn->orig_route->fpp_rejected) ||
@@ -928,6 +979,7 @@ cmm_conn_maintenance(struct cmm_global *g)
 	 * reasoning as the MAC-change check above. */
 	cmm_lagg_recheck_all(g);
 
+	conn_clear_ct_failed();
 	retried = cmm_conn_retry_rejected(g);
 
 	if (retried > 0)
