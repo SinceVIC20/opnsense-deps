@@ -239,11 +239,16 @@ sudo make -C /usr/tools arm-5G DEVICE=GATEWAY SETTINGS=26.1 TOOLSDIR=/usr/tools
 
 Output: `/usr/local/opnsense/build/26.1/aarch64/images/OPNsense-*-arm-aarch64-GATEWAY.img`
 
-Optionally, compress the image for faster transfers:
+### 8. Compress the image
 
 ```
-sudo gzip /usr/local/opnsense/build/26.1/aarch64/images/OPNsense-*-GATEWAY.img
+sudo make -C /usr/deps compress-image OPS_SETTINGS=26.1
 ```
+
+This zeroes the image's free space (so it compresses well) and writes
+`OPNsense-*-arm-aarch64-GATEWAY.img.bz2` next to the `.img`, with `.sha256` and
+`.md5` files for both. bzip2 is the format OPNsense's own tools and mono-imager
+expect. The `.img` itself is kept.
 
 ## Development workflow
 
@@ -338,10 +343,10 @@ downloads, decompresses, and writes in a single pipeline — no local storage
 needed (works even on devices with limited RAM):
 
 ```
-curl http://[build-server]:8000/OPNsense-*-GATEWAY.img.gz | gunzip | dd of=/dev/mmcblk0 bs=1M
+curl http://[build-server]:8000/OPNsense-*-GATEWAY.img.bz2 | bzip2 -dc | dd of=/dev/mmcblk0 bs=1M
 ```
 
-For an uncompressed image (slower transfer, no gunzip needed):
+For an uncompressed image (slower transfer, no bzip2 needed):
 
 ```
 curl http://[build-server]:8000/OPNsense-*-GATEWAY.img | dd of=/dev/mmcblk0 bs=1M

@@ -334,17 +334,20 @@ image:
 	@echo "==> Step 3: Building modules, userspace, and package"
 	${MAKE} -C ${OPSDIR} -j${_NCPU} package
 	@echo "==> Step 5: Assembling UFS image"
-	rm -f ${IMAGESDIR}/OPNsense-*-GATEWAY.img \
-		${IMAGESDIR}/OPNsense-*-GATEWAY.img.gz
+	rm -f ${IMAGESDIR}/OPNsense-*-GATEWAY.img*
 	${MAKE} -C ${TOOLSDIR} arm-5G \
 		DEVICE=GATEWAY SETTINGS=${OPS_SETTINGS} \
 		TOOLSDIR=${TOOLSDIR} SRCDIR=${SRCDIR}
 	@echo "==> Step 6: Compressing and copying to dist/"
+	${MAKE} -C ${OPSDIR} compress-image OPS_SETTINGS=${OPS_SETTINGS} IMAGESDIR=${IMAGESDIR}
 	@mkdir -p ${DISTDIR}
-	gzip -k ${IMAGESDIR}/OPNsense-*-GATEWAY.img
-	cp ${IMAGESDIR}/OPNsense-*-GATEWAY.img.gz ${DISTDIR}/
+	cp ${IMAGESDIR}/OPNsense-*-GATEWAY.img.bz2* ${DISTDIR}/
 	@echo "==> Image ready:"
-	@ls -lh ${DISTDIR}/OPNsense-*-GATEWAY.img.gz
+	@ls -lh ${DISTDIR}/OPNsense-*-GATEWAY.img.bz2
+
+# Zero the image's free space and compress it to .img.bz2 (run as root).
+compress-image:
+	sh ${OPSDIR}/scripts/compress-image.sh ${IMAGESDIR}
 
 # ============================================================
 # Clean
@@ -371,7 +374,7 @@ clean:
 .ORDER: clean modules
 .ORDER: clean userspace
 
-.PHONY: all modules userspace package image clean fetch-vendor \
+.PHONY: all modules userspace package image compress-image clean fetch-vendor \
 	build-cdx build-fci build-auto_bridge build-pf_notify \
 	build-emc2302 build-ina2xx build-lp5812 build-sfpled build-pcf2131 \
 	build-caam build-tmp431 build-mwifiex build-dpaa_wifi \
