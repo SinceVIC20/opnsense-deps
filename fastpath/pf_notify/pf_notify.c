@@ -151,8 +151,59 @@ static uint64_t		pfn_events_total;
 static uint64_t		pfn_events_dropped;
 static uint64_t		pfn_counter_updates;
 static uint64_t		pfn_counter_misses;
+static u_long		pfn_pinned;		/* states pinned right now */
 
 static struct sysctl_ctx_list	pfn_sysctl_ctx;
+
+/* --- Offload pin -------------------------------------------------- */
+
+#ifdef PFSTATE_OFFLOAD_PIN
+/*
+ * Give a state back to PF's own timeouts, counted from now.
+ * Caller holds the state's lock.
+ */
+static void
+pfn_unpin(struct pf_kstate *s)
+{
+
+	s->state_flags &= ~PFSTATE_OFFLOAD_PIN;
+	s->expire = pf_get_uptime();
+	/* Next packet through PF fires READY again, so CMM re-offloads
+	 * only once traffic resumes. */
+	pfn_clear_notified(s->id);
+	atomic_subtract_long(&pfn_pinned, 1);
+}
+
+static int
+pfn_tcp_closing(const struct pf_kstate *s)
+{
+
+	return (s->key[PF_SK_WIRE]->proto == IPPROTO_TCP &&
+	    (s->src.state >= TCPS_FIN_WAIT_1 ||
+	    s->dst.state >= TCPS_FIN_WAIT_1));
+}
+
+/* CMM is gone, so nothing will unpin these - hand them all back to PF. */
+static void
+pfn_unpin_all(void)
+{
+	struct pf_idhash *ih;
+	struct pf_kstate *s;
+	u_long i;
+
+	for (i = 0; i <= V_pf_hashmask; i++) {
+		ih = &V_pf_idhash[i];
+		if (LIST_EMPTY(&ih->states))
+			continue;
+		PF_HASHROW_LOCK(ih);
+		LIST_FOREACH(s, &ih->states, entry) {
+			if (s->state_flags & PFSTATE_OFFLOAD_PIN)
+				pfn_unpin(s);
+		}
+		PF_HASHROW_UNLOCK(ih);
+	}
+}
+#endif
 
 /* --- Event construction ------------------------------------------- */
 
@@ -250,6 +301,13 @@ pfn_update_state(struct pf_kstate *s)
 	uint8_t proto, src_st, dst_st;
 	int ready;
 
+#ifdef PFSTATE_OFFLOAD_PIN
+	/* FIN/RST reach PF even while offloaded, so a closing TCP flow goes
+	 * back to PF's closing timeouts here. */
+	if ((s->state_flags & PFSTATE_OFFLOAD_PIN) && pfn_tcp_closing(s))
+		pfn_unpin(s);
+#endif
+
 	if (!pfn_open)
 		return;
 
@@ -314,6 +372,12 @@ pfn_delete_state(struct pf_kstate *s)
 	/* Clear one-shot tracker regardless of consumer */
 	pfn_clear_notified(s->id);
 
+#ifdef PFSTATE_OFFLOAD_PIN
+	/* Killed while pinned (pfctl -k, flush): no longer counted. */
+	if (s->state_flags & PFSTATE_OFFLOAD_PIN)
+		atomic_subtract_long(&pfn_pinned, 1);
+#endif
+
 	if (!pfn_open)
 		return;
 
@@ -347,12 +411,19 @@ pfn_dev_open(struct cdev *dev __unused, int oflags __unused,
 
 static int
 pfn_dev_close(struct cdev *dev __unused, int fflag __unused,
-    int devtype __unused, struct thread *td __unused)
+    int devtype __unused, struct thread *td)
 {
 
 	mtx_lock(&pfn_mtx);
 	pfn_open = 0;
 	mtx_unlock(&pfn_mtx);
+
+#ifdef PFSTATE_OFFLOAD_PIN
+	/* Covers CMM crashing too - the kernel closes its fd on exit. */
+	CURVNET_SET(TD_TO_VNET(td));
+	pfn_unpin_all();
+	CURVNET_RESTORE();
+#endif
 	return (0);
 }
 
@@ -392,6 +463,64 @@ pfn_dev_read(struct cdev *dev __unused, struct uio *uio, int ioflag)
 	return (0);
 }
 
+/*
+ * Pin or unpin a batch of states.  count == 0 lets CMM check that this
+ * kernel supports pinning (ENOTTY if not).
+ */
+static int
+pfn_set_pin(struct pfn_pin_update *upd, struct thread *td)
+{
+#ifdef PFSTATE_OFFLOAD_PIN
+	struct pfn_pin_entry *entries;
+	struct pf_kstate *s;
+	uint32_t i;
+	int error;
+
+	if (upd->count == 0)
+		return (0);
+	if (upd->count > PFN_PIN_BATCH_MAX)
+		return (EINVAL);
+
+	entries = malloc(upd->count * sizeof(*entries), M_TEMP, M_WAITOK);
+	error = copyin(upd->entries, entries, upd->count * sizeof(*entries));
+	if (error) {
+		free(entries, M_TEMP);
+		return (error);
+	}
+
+	CURVNET_SET(TD_TO_VNET(td));
+
+	for (i = 0; i < upd->count; i++) {
+		s = pf_find_state_byid(entries[i].id, entries[i].creatorid);
+		if (s == NULL) {
+			entries[i].result = PFN_PIN_MISSING;
+			continue;
+		}
+		entries[i].result = PFN_PIN_OK;
+		if (entries[i].pin) {
+			/* Too late: the FIN already went through PF, and
+			 * nothing would unpin it again. */
+			if (pfn_tcp_closing(s))
+				entries[i].result = PFN_PIN_CLOSING;
+			else if (!(s->state_flags & PFSTATE_OFFLOAD_PIN)) {
+				s->state_flags |= PFSTATE_OFFLOAD_PIN;
+				atomic_add_long(&pfn_pinned, 1);
+			}
+		} else if (s->state_flags & PFSTATE_OFFLOAD_PIN)
+			pfn_unpin(s);
+		PF_STATE_UNLOCK(s);
+	}
+
+	CURVNET_RESTORE();
+
+	error = copyout(entries, upd->entries, upd->count * sizeof(*entries));
+	free(entries, M_TEMP);
+	return (error);
+#else
+	return (ENOTTY);
+#endif
+}
+
 static int
 pfn_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
     int fflag __unused, struct thread *td)
@@ -405,6 +534,8 @@ pfn_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
 	switch (cmd) {
 	case PFN_IOC_UPDATE_COUNTERS:
 		break;
+	case PFN_IOC_SET_PIN:
+		return (pfn_set_pin((struct pfn_pin_update *)data, td));
 	default:
 		return (ENOTTY);
 	}
@@ -441,7 +572,9 @@ pfn_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
 		 * because offloaded packets bypass pf_test() and never
 		 * update expire.  Once PF purges the state, pf_notify
 		 * sends DELETE → CMM removes CDX flow → permanent death.
-		 * expire is in milliseconds, so use pf_get_uptime(). */
+		 * expire is in milliseconds, so use pf_get_uptime().
+		 * Pinned states ignore this; it's kept for a CMM that
+		 * doesn't pin. */
 		s->expire = pf_get_uptime();
 		PF_STATE_UNLOCK(s);
 		pfn_counter_updates++;
@@ -588,6 +721,11 @@ pfn_sysctl_init(void)
 	    &pfn_counter_misses, 0,
 	    "PF state counter update misses (state gone)");
 
+	SYSCTL_ADD_ULONG(&pfn_sysctl_ctx, SYSCTL_CHILDREN(parent),
+	    OID_AUTO, "pinned", CTLFLAG_RD,
+	    &pfn_pinned,
+	    "PF states pinned for hardware offload right now");
+
 	SYSCTL_ADD_U64(&pfn_sysctl_ctx, SYSCTL_CHILDREN(parent),
 	    OID_AUTO, "ring_hwm", CTLFLAG_RD,
 	    &pfn_ring_hwm, 0,
@@ -628,6 +766,7 @@ pfn_load(void)
 	pfn_counter_updates = 0;
 	pfn_counter_misses = 0;
 	pfn_ring_hwm = 0;
+	pfn_pinned = 0;
 
 	/* Create /dev/pfnotify */
 	pfn_cdev = make_dev(&pfn_cdevsw, 0, UID_ROOT, GID_WHEEL, 0600,
@@ -689,6 +828,9 @@ pf_notify_modevent(module_t mod __unused, int type, void *unused __unused)
 	case MOD_LOAD:
 		return (pfn_load());
 	case MOD_UNLOAD:
+		/* Unloading under an open CMM panicked the router once. */
+		if (pfn_open)
+			return (EBUSY);
 		pfn_unload();
 		return (0);
 	default:

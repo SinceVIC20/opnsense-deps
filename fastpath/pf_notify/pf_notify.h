@@ -100,4 +100,33 @@ struct pfn_counter_update {
 
 #define PFN_IOC_UPDATE_COUNTERS	_IOWR('N', 1, struct pfn_counter_update)
 
+/* --- Offload pin (userspace -> kernel via ioctl) --- */
+
+/*
+ * A pinned PF state never times out while the hardware carries its flow;
+ * CMM unpins it when CDX reports the flow idle or drops it.  Unpinning
+ * restarts PF's normal timeout from now.
+ */
+#define PFN_PIN_BATCH_MAX	256
+
+#define PFN_PIN_OK		0	/* done */
+#define PFN_PIN_MISSING		1	/* PF had no matching state */
+#define PFN_PIN_CLOSING		2	/* TCP already closing, not pinned */
+
+struct pfn_pin_entry {
+	uint64_t	id;		/* PF state ID */
+	uint32_t	creatorid;	/* PF state creator ID */
+	uint8_t		pin;		/* 1 = pin, 0 = unpin */
+	uint8_t		result;		/* out: PFN_PIN_* */
+	uint8_t		pad[2];
+};
+
+struct pfn_pin_update {
+	uint32_t	count;		/* number of entries, 0 = support probe */
+	uint32_t	pad;
+	struct pfn_pin_entry *entries;	/* userspace pointer, in/out */
+};
+
+#define PFN_IOC_SET_PIN		_IOWR('N', 2, struct pfn_pin_update)
+
 #endif /* PF_NOTIFY_H */
