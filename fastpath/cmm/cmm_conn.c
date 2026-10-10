@@ -1069,19 +1069,58 @@ stats_sync_flush(struct cmm_global *g, struct pfn_counter_entry *entries,
  */
 #define CMM_STATS_SYNC_MAX_PER_TICK	1024
 
+/*
+ * Read and reset CDX's counters for one direction of a flow. CDX keeps
+ * separate counters for the original and reply directions.
+ */
+static int
+conn_flow_stat(struct cmm_global *g, const struct cmm_conn *conn, int reply,
+    uint64_t *packets, uint64_t *bytes)
+{
+	fpp_stat_flow_status_cmd_t cmd;
+	fpp_stat_flow_entry_response_t resp;
+	unsigned short resp_len;
+	const uint8_t *saddr, *daddr;
+
+	saddr = reply ? conn->rep_saddr : conn->orig_saddr;
+	daddr = reply ? conn->rep_daddr : conn->orig_daddr;
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.action = FPP_CMM_STAT_QUERY_RESET;
+	cmd.ip_family = (conn->af == AF_INET) ? 4 : 6;
+	cmd.Protocol = conn->proto;
+	cmd.Sport = reply ? conn->rep_sport : conn->orig_sport;
+	cmd.Dport = reply ? conn->rep_dport : conn->orig_dport;
+
+	if (conn->af == AF_INET) {
+		memcpy(&cmd.Saddr, saddr, 4);
+		memcpy(&cmd.Daddr, daddr, 4);
+	} else {
+		memcpy(cmd.Saddr_v6, saddr, 16);
+		memcpy(cmd.Daddr_v6, daddr, 16);
+	}
+
+	resp_len = sizeof(resp);
+	if (fci_cmd(g->fci_handle, FPP_CMD_STAT_FLOW,
+	    (unsigned short *)&cmd, sizeof(cmd),
+	    (unsigned short *)&resp, &resp_len) != 0)
+		return (-1);
+
+	*packets = resp.TotalPackets;
+	*bytes = resp.TotalBytes;
+	return (0);
+}
+
 void
 cmm_conn_stats_sync(struct cmm_global *g)
 {
 	struct pfn_counter_entry batch[PFN_COUNTER_BATCH_MAX];
-	fpp_stat_flow_status_cmd_t cmd;
-	fpp_stat_flow_entry_response_t resp;
-	unsigned short resp_len;
+	uint64_t pkts[2], bytes[2];
 	struct cmm_conn *conn;
 	struct list_head *pos;
 	static unsigned int cursor;
 	unsigned int start, i, matched;
 	uint32_t n;
-	int rc;
 
 	if (g->pfnotify_fd < 0)
 		return;
@@ -1105,37 +1144,24 @@ cmm_conn_stats_sync(struct cmm_global *g)
 				goto done_scan;
 			matched++;
 
-			/* Build stat query for this flow's original 5-tuple */
-			memset(&cmd, 0, sizeof(cmd));
-			cmd.action = FPP_CMM_STAT_QUERY_RESET;
-			cmd.ip_family = (conn->af == AF_INET) ? 4 : 6;
-			cmd.Protocol = conn->proto;
-			cmd.Sport = conn->orig_sport;
-			cmd.Dport = conn->orig_dport;
-
-			if (conn->af == AF_INET) {
-				memcpy(&cmd.Saddr, conn->orig_saddr, 4);
-				memcpy(&cmd.Daddr, conn->orig_daddr, 4);
-			} else {
-				memcpy(cmd.Saddr_v6, conn->orig_saddr, 16);
-				memcpy(cmd.Daddr_v6, conn->orig_daddr, 16);
-			}
-
-			resp_len = sizeof(resp);
-			rc = fci_cmd(g->fci_handle, FPP_CMD_STAT_FLOW,
-			    (unsigned short *)&cmd, sizeof(cmd),
-			    (unsigned short *)&resp, &resp_len);
-			if (rc != 0)
+			/* Check both directions: a mostly one-way flow (e.g. a
+			 * download) can show nothing in the original direction,
+			 * and skipping it would let PF expire the flow. */
+			if (conn_flow_stat(g, conn, 0, &pkts[0], &bytes[0]) != 0)
 				continue;
-			if (resp.TotalPackets == 0 && resp.TotalBytes == 0)
+			if (conn_flow_stat(g, conn, 1, &pkts[1], &bytes[1]) != 0)
+				pkts[1] = bytes[1] = 0;
+			if (pkts[0] == 0 && pkts[1] == 0)
 				continue;
 
 			/* Primary PF state */
 			memset(&batch[n], 0, sizeof(batch[n]));
 			batch[n].id = conn->pf_id;
 			batch[n].creatorid = conn->pf_creatorid;
-			batch[n].packets[0] = resp.TotalPackets;
-			batch[n].bytes[0] = resp.TotalBytes;
+			batch[n].packets[0] = pkts[0];
+			batch[n].packets[1] = pkts[1];
+			batch[n].bytes[0] = bytes[0];
+			batch[n].bytes[1] = bytes[1];
 			n++;
 
 			/* NAT companion PF state (if present). Traffic is
