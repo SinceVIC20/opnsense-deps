@@ -440,8 +440,9 @@ pfn_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
 		 * Without this, PF purges the state (UDP: 60s, TCP: 24h)
 		 * because offloaded packets bypass pf_test() and never
 		 * update expire.  Once PF purges the state, pf_notify
-		 * sends DELETE → CMM removes CDX flow → permanent death. */
-		s->expire = time_uptime;
+		 * sends DELETE → CMM removes CDX flow → permanent death.
+		 * expire is in milliseconds, so use pf_get_uptime(). */
+		s->expire = pf_get_uptime();
 		PF_STATE_UNLOCK(s);
 		pfn_counter_updates++;
 	}
