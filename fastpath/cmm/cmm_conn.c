@@ -564,7 +564,8 @@ conn_clear_nat_companion(struct cmm_conn *conn)
 	conn->pf_id_nat = 0;
 	conn->pf_creatorid_nat = 0;
 	conn->pf_has_nat_id = 0;
-	conn->flags &= ~CONN_F_HAS_NAT;
+	if (conn->flags & CONN_F_NAT_COMPANION)
+		conn->flags &= ~(CONN_F_HAS_NAT | CONN_F_NAT_COMPANION);
 }
 
 /*
@@ -747,7 +748,16 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 			conn->pf_creatorid_nat = ev->creatorid;
 			conn->pf_has_nat_id = 1;
 
-			conn->flags |= CONN_F_HAS_NAT;
+			conn->flags |= CONN_F_HAS_NAT | CONN_F_NAT_COMPANION;
+		} else if (!is_nat && !conn->pf_has_nat_id &&
+		    (ev->id != conn->pf_id ||
+		    ev->creatorid != conn->pf_creatorid)) {
+			/* The flow's other PF state became ready after this conn
+			 * was created. Track it so stats-sync keeps it alive too,
+			 * or PF expires it mid-flow (UDP: 30s). */
+			conn->pf_id_nat = ev->id;
+			conn->pf_creatorid_nat = ev->creatorid;
+			conn->pf_has_nat_id = 1;
 		}
 
 		if (!(conn->flags & CONN_F_OFFLOADED))

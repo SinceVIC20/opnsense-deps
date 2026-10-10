@@ -22,6 +22,7 @@
 #define CONN_F_REP_DIR		0x04	/* offload reply direction */
 #define CONN_F_HAS_NAT		0x08	/* reply tuples from PF_OUT (NAT) */
 #define CONN_F_CT_FAILED	0x10	/* CDX refused it; retry on maintenance */
+#define CONN_F_NAT_COMPANION	0x20	/* companion state is the NAT one */
 
 struct cmm_conn {
 	struct list_head	hash_entry;	/* hash by original 5-tuple */
@@ -45,7 +46,8 @@ struct cmm_conn {
 	uint32_t		pf_creatorid;
 	uint8_t			pf_direction;
 
-	/* NAT companion PF state (PF_OUT state for NAT connections) */
+	/* Companion PF state: the flow's other state (PF_OUT for NAT, or
+	 * the second interface's state), kept alive with the primary. */
 	uint64_t		pf_id_nat;
 	uint32_t		pf_creatorid_nat;
 	uint8_t			pf_has_nat_id;
