@@ -23,6 +23,12 @@
 #define CONN_F_HAS_NAT		0x08	/* reply tuples from PF_OUT (NAT) */
 #define CONN_F_CT_FAILED	0x10	/* CDX refused it; retry on maintenance */
 #define CONN_F_NAT_COMPANION	0x20	/* companion state is the NAT one */
+#define CONN_F_PINNED		0x40	/* PF states pinned while offloaded */
+#define CONN_F_IDLE		0x80	/* CDX aged it out; wait for traffic */
+#define CONN_F_CLOSING		0x100	/* TCP closing, don't offload again */
+#define CONN_F_ORPHAN		0x200	/* PF state gone, remove after scan */
+#define CONN_F_NO_OFFLOAD	0x400	/* PF must see every packet (seq
+					 * rewrite, dummynet) - never offload */
 
 struct cmm_conn {
 	struct list_head	hash_entry;	/* hash by original 5-tuple */
@@ -73,6 +79,12 @@ struct cmm_conn {
 
 /* Initialize connection table */
 int cmm_conn_init(void);
+
+/*
+ * Check whether the kernel can pin offloaded PF states, and give CDX
+ * pf's idle timeouts.  Call once /dev/pfnotify is open.
+ */
+void cmm_conn_pin_init(struct cmm_global *g);
 void cmm_conn_fini(struct cmm_global *g);
 
 /*
