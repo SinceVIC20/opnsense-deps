@@ -21,6 +21,12 @@
 #define PFN_DEV_PATH	"/dev/pfnotify"
 #define PFN_DEV_NAME	"pfnotify"
 
+/* pfn_event.flags */
+#define PFN_EVF_NO_OFFLOAD	0x0001	/* PF must see every packet: TCP
+					 * sequence rewriting (modulate
+					 * state, synproxy) or a dummynet
+					 * pipe, which CDX can't do */
+
 /* Event types (kernel -> userspace via read()) */
 #define PFN_EVENT_INSERT	1	/* new PF state created */
 #define PFN_EVENT_READY		2	/* state is offload-ready */
@@ -59,7 +65,7 @@ struct pfn_event {
 	uint64_t		id;		/* pf_kstate.id */
 	uint32_t		creatorid;	/* pf_kstate.creatorid */
 	uint16_t		state_flags;	/* pf_kstate.state_flags */
-	uint16_t		_pad1;
+	uint16_t		flags;		/* PFN_EVF_* (was padding) */
 	char			ifname[16];	/* IFNAMSIZ */
 	struct pfn_state_key	key[2];		/* [0]=wire, [1]=stack */
 	uint32_t		rt_ifindex;	/* route-to/reply-to egress
@@ -112,6 +118,8 @@ struct pfn_counter_update {
 #define PFN_PIN_OK		0	/* done */
 #define PFN_PIN_MISSING		1	/* PF had no matching state */
 #define PFN_PIN_CLOSING		2	/* TCP already closing, not pinned */
+#define PFN_PIN_OWN_TIMEOUT	3	/* rule sets its own timeout, not
+					 * pinned (CDX only has global ones) */
 
 struct pfn_pin_entry {
 	uint64_t	id;		/* PF state ID */

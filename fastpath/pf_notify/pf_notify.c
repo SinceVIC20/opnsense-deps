@@ -183,6 +183,24 @@ pfn_tcp_closing(const struct pf_kstate *s)
 	    s->dst.state >= TCPS_FIN_WAIT_1));
 }
 
+/*
+ * The state's rule sets its own idle timeout.  CDX only knows PF's global
+ * ones, so a pinned flow could outlive the rule's shorter timeout - leave
+ * it to CMM's counter keep-alive instead.
+ */
+static int
+pfn_own_timeout(const struct pf_kstate *s)
+{
+	const struct pf_krule *r = s->rule;
+
+	if (r == NULL || r == &V_pf_default_rule)
+		return (0);
+	if (s->key[PF_SK_WIRE]->proto == IPPROTO_TCP)
+		return (r->timeout[PFTM_TCP_ESTABLISHED] != 0);
+	return (r->timeout[PFTM_UDP_SINGLE] != 0 ||
+	    r->timeout[PFTM_UDP_MULTIPLE] != 0);
+}
+
 /* CMM is gone, so nothing will unpin these - hand them all back to PF. */
 static void
 pfn_unpin_all(void)
@@ -207,6 +225,21 @@ pfn_unpin_all(void)
 
 /* --- Event construction ------------------------------------------- */
 
+/*
+ * PF has to see every packet of this flow: it rewrites TCP sequence
+ * numbers (modulate state, synproxy) or sends it through a dummynet
+ * pipe.  CDX can do neither, and sloppy tracking would skip the rewrite.
+ */
+static int
+pfn_needs_pf(const struct pf_kstate *s)
+{
+
+	if (s->act.dnpipe || s->act.dnrpipe)
+		return (1);
+	return (s->key[PF_SK_WIRE]->proto == IPPROTO_TCP &&
+	    (s->src.seqdiff || s->dst.seqdiff));
+}
+
 static void
 pfn_fill_event(struct pfn_event *ev, uint8_t type, struct pf_kstate *s)
 {
@@ -219,6 +252,8 @@ pfn_fill_event(struct pfn_event *ev, uint8_t type, struct pf_kstate *s)
 	ev->id = s->id;
 	ev->creatorid = s->creatorid;
 	ev->state_flags = s->state_flags;
+	if (pfn_needs_pf(s))
+		ev->flags |= PFN_EVF_NO_OFFLOAD;
 	strlcpy(ev->ifname, s->kif->pfik_name, sizeof(ev->ifname));
 
 	/* route-to/reply-to egress interface, if pf overrode the route
@@ -331,8 +366,11 @@ pfn_update_state(struct pf_kstate *s)
 		return;
 
 	/* Sloppy tracking (0x0002) only needed once a flow is an offload
-	 * candidate, so it's set here at READY, not at INSERT for every state. */
-	s->state_flags |= 0x0002;
+	 * candidate, so it's set here at READY, not at INSERT for every state.
+	 * READY still goes out for a flow PF must keep, so CMM knows not to
+	 * offload it through its other state. */
+	if (!pfn_needs_pf(s))
+		s->state_flags |= 0x0002;
 
 	/* Cheap lockless pre-check — harmless races just produce a
 	 * duplicate READY event that CMM handles idempotently. */
@@ -502,6 +540,8 @@ pfn_set_pin(struct pfn_pin_update *upd, struct thread *td)
 			 * nothing would unpin it again. */
 			if (pfn_tcp_closing(s))
 				entries[i].result = PFN_PIN_CLOSING;
+			else if (pfn_own_timeout(s))
+				entries[i].result = PFN_PIN_OWN_TIMEOUT;
 			else if (!(s->state_flags & PFSTATE_OFFLOAD_PIN)) {
 				s->state_flags |= PFSTATE_OFFLOAD_PIN;
 				atomic_add_long(&pfn_pinned, 1);
