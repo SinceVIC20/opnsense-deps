@@ -3,6 +3,8 @@
 # The build's own sets are only read, never changed.
 # Usage: publish-update-server.sh <release> <outdir>
 #   <release> must match RELEASE in the opnsense-update package being served (e.g. 26.7.2).
+#   For a newer release, set OPNSENSE_UPDATE_PKG to an opnsense-update package
+#   made by bump-opnsense-update.sh; it replaces the one in latest/.
 
 set -e
 
@@ -87,6 +89,13 @@ mkdir -p ${TOP}/latest ${TOP}/mono/All ${TOP}/sets
 echo ">>> latest: $(basename ${PACKAGESET})"
 tar -C ${TOP}/latest -xf ${PACKAGESET}
 rm -f ${TOP}/latest/.*_done
+if [ -n "${OPNSENSE_UPDATE_PKG}" ]; then
+	[ "$(pkg query -F ${OPNSENSE_UPDATE_PKG} %v)" = "${RELEASE}" ] || { echo "ERROR: ${OPNSENSE_UPDATE_PKG} is not release ${RELEASE}"; exit 1; }
+	echo ">>> latest: opnsense-update -> $(basename ${OPNSENSE_UPDATE_PKG})"
+	rm -f ${TOP}/latest/All/opnsense-update-*.pkg ${TOP}/latest/Latest/opnsense-update.pkg
+	cp ${OPNSENSE_UPDATE_PKG} ${TOP}/latest/All/
+	ln -s ../All/$(basename ${OPNSENSE_UPDATE_PKG}) ${TOP}/latest/Latest/opnsense-update.pkg
+fi
 for f in ${TOP}/latest/Latest/*.pkg; do sign_file ${f}; done
 sign_repo ${TOP}/latest
 
