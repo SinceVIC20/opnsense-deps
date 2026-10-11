@@ -27,6 +27,9 @@
 #define CONN_F_IDLE		0x80	/* CDX aged it out; wait for traffic */
 #define CONN_F_CLOSING		0x100	/* TCP closing, don't offload again */
 #define CONN_F_ORPHAN		0x200	/* PF state gone, remove after scan */
+#define CONN_S_IN		0x01	/* have_states: entering state seen */
+#define CONN_S_OUT		0x02	/* have_states: leaving state seen */
+
 #define CONN_F_NO_OFFLOAD	0x400	/* PF must see every packet (seq
 					 * rewrite, dummynet) - never offload */
 
@@ -47,6 +50,27 @@ struct cmm_conn {
 	uint16_t		rep_sport;
 	uint16_t		rep_dport;
 
+	/* Identity: the 5-tuple as the stack sees it (PF's STACK key), the
+	 * same for both of the flow's PF states.  orig_* / rep_* above are
+	 * what CDX matches on the wire, which differs for a port forward. */
+	uint8_t			key_saddr[16];
+	uint8_t			key_daddr[16];
+	uint16_t		key_sport;
+	uint16_t		key_dport;
+
+	/* Wire tuples of the flow's two PF states, in packet order: in_*
+	 * where it enters the router, out_* where it leaves. */
+	uint8_t			in_saddr[16];
+	uint8_t			in_daddr[16];
+	uint16_t		in_sport;
+	uint16_t		in_dport;
+	uint8_t			out_saddr[16];
+	uint8_t			out_daddr[16];
+	uint16_t		out_sport;
+	uint16_t		out_dport;
+	uint8_t			have_states;	/* CONN_S_IN | CONN_S_OUT */
+	time_t			created;	/* monotonic seconds */
+
 	/* PF tracking */
 	uint64_t		pf_id;
 	uint32_t		pf_creatorid;
@@ -57,6 +81,7 @@ struct cmm_conn {
 	uint64_t		pf_id_nat;
 	uint32_t		pf_creatorid_nat;
 	uint8_t			pf_has_nat_id;
+	uint8_t			pf_direction_nat;
 
 	char			ifname[IFNAMSIZ];
 
