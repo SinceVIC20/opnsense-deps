@@ -331,6 +331,7 @@ main(int argc, char *argv[])
 		}
 		g->pfnotify_fd = fd;
 		cmm_print(CMM_LOG_INFO, "pfnotify: fd=%d", fd);
+		cmm_conn_pin_init(g);
 	}
 
 	/* Register FCI event dispatcher for CDX async notifications */
