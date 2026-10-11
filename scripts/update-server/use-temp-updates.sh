@@ -29,6 +29,9 @@ case "${SERIES}" in
 esac
 
 if [ "${SERIES}" = "26.1" ]; then
+	# The 26.7 kernel can only start from a UFS root, official 26.1 images use ZFS.
+	ROOTFS=$(mount -p | awk '$2 == "/" { print $3 }')
+	[ "${ROOTFS}" = "ufs" ] || { echo "This router's disk uses ${ROOTFS}, the upgrade to 26.7 doesn't support that yet."; echo "Nothing changed."; exit 1; }
 	# The upgrade writes the new kernel to the boot partition and needs room for its sets.
 	mount | grep -q ' on /boot/msdos ' && [ -f /boot/msdos/kernel.img ] || { echo "The boot partition (/boot/msdos) is not mounted, so the upgrade can't install its kernel."; echo "Nothing changed."; exit 1; }
 	FREE=$(df -k / | awk 'NR == 2 { print $4 }')
