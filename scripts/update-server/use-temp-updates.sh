@@ -12,6 +12,10 @@ REPOSCRIPT=/usr/local/opnsense/scripts/firmware/repos/MonoGateway.php
 [ "$(sysctl -n kern.ident)" = "MONO-GATEWAY" ] || { echo "This is not a Mono Gateway, nothing changed."; exit 1; }
 [ "$(id -u)" = 0 ] || { echo "Run this as root."; exit 1; }
 
+# The server only carries 26.7; older versions need a fresh install of the 26.7 image.
+SERIES=$(/usr/local/sbin/opnsense-version -a)
+[ "${SERIES}" = "26.7" ] || { echo "This router runs ${SERIES}. The temporary server only has 26.7."; echo "Install the 26.7 image first: ${SERVER}/images/"; echo "Nothing changed."; exit 1; }
+
 echo "Switching updates to ${SERVER} (unofficial, temporary)."
 cp /conf/config.xml /root/config-before-temp-updates.xml
 
