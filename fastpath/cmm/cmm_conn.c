@@ -25,6 +25,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "cmm.h"
@@ -99,10 +100,10 @@ conn_find_5tuple(sa_family_t af, uint8_t proto,
 		conn = container_of(pos, struct cmm_conn, hash_entry);
 		if (conn->af == af &&
 		    conn->proto == proto &&
-		    conn->orig_sport == sport &&
-		    conn->orig_dport == dport &&
-		    memcmp(conn->orig_saddr, saddr, alen) == 0 &&
-		    memcmp(conn->orig_daddr, daddr, alen) == 0)
+		    conn->key_sport == sport &&
+		    conn->key_dport == dport &&
+		    memcmp(conn->key_saddr, saddr, alen) == 0 &&
+		    memcmp(conn->key_daddr, daddr, alen) == 0)
 			return (conn);
 	}
 	return (NULL);
@@ -119,6 +120,7 @@ conn_find_5tuple(sa_family_t af, uint8_t proto,
 static int pin_supported;
 
 static int shaper_reload(void);
+static time_t conn_now(void);
 
 /* Last pf timeouts given to CDX, so they're only resent on change. */
 static int cdx_tcp_timeout, cdx_udp_timeout, cdx_udp_single_timeout;
@@ -513,13 +515,32 @@ itf_offload_ready(int ifindex)
 	return (1);
 }
 
+/* How long a flow seen by only one PF state waits for the other. */
+#define CONN_PAIR_WAIT_S	5
+
 static int
 conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 {
-	/* Look up route for original direction (dst = orig_daddr) */
+	/*
+	 * Wait for both of the flow's PF states, so CDX gets exact tuples at
+	 * once, as from a Linux conntrack.  Offloading on one state's guess
+	 * could send a NAT'd flow's packets out untranslated until the
+	 * other state arrives.  A flow that only ever has one state is
+	 * offloaded on that guess by the retry pass after a short wait.
+	 */
+	if (conn->have_states != (CONN_S_IN | CONN_S_OUT) &&
+	    conn_now() - conn->created < CONN_PAIR_WAIT_S)
+		return (-1);
+
+	/*
+	 * Look up route for original direction.  CDX rewrites the packet's
+	 * destination to the reply's source before forwarding it, so route
+	 * to rep_saddr - the real server for a port forward, and the same
+	 * as orig_daddr for outbound NAT and plain routing.
+	 */
 	if (conn->orig_route == NULL)
 		conn->orig_route = cmm_route_get(g, conn->af,
-		    conn->orig_daddr, conn->rt_ifindex, 0);
+		    conn->rep_saddr, conn->rt_ifindex, 0);
 	if (conn->orig_route == NULL) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "conn: no route for original direction");
@@ -866,37 +887,125 @@ conn_clear_nat_companion(struct cmm_conn *conn)
 	conn->pf_id_nat = 0;
 	conn->pf_creatorid_nat = 0;
 	conn->pf_has_nat_id = 0;
+	conn->have_states &= (conn->pf_direction_nat == PF_IN) ?
+	    ~CONN_S_IN : ~CONN_S_OUT;
 	if (conn->flags & CONN_F_NAT_COMPANION)
 		conn->flags &= ~(CONN_F_HAS_NAT | CONN_F_NAT_COMPANION);
 }
 
 /*
- * Extract connection tuples from a pfn_event.
- * Same logic as conn_extract_tuples() but reads from pfn_event.
+ * One of the event's keys (0 = wire, 1 = stack) as a tuple in the state's
+ * own packet direction.  Unused address bytes stay zero.
  */
 static void
-pfn_extract_tuples(struct cmm_conn *conn, const struct pfn_event *ev)
+pfn_key_tuple(const struct pfn_event *ev, int k, uint8_t *saddr,
+    uint8_t *daddr, uint16_t *sport, uint16_t *dport)
 {
 	int sidx, didx, alen;
 
-	conn->af = ev->key[0].af;
-	conn->proto = ev->key[0].proto;
-	alen = (conn->af == AF_INET) ? 4 : 16;
-
 	sidx = (ev->direction == PF_IN) ? 0 : 1;
 	didx = (ev->direction == PF_IN) ? 1 : 0;
+	alen = (ev->key[0].af == AF_INET) ? 4 : 16;
 
-	/* Original direction: STACK key (index 1) */
-	memcpy(conn->orig_saddr, ev->key[1].addr[sidx], alen);
-	memcpy(conn->orig_daddr, ev->key[1].addr[didx], alen);
-	conn->orig_sport = ev->key[1].port[sidx];
-	conn->orig_dport = ev->key[1].port[didx];
+	memset(saddr, 0, 16);
+	memset(daddr, 0, 16);
+	memcpy(saddr, ev->key[k].addr[sidx], alen);
+	memcpy(daddr, ev->key[k].addr[didx], alen);
+	*sport = ev->key[k].port[sidx];
+	*dport = ev->key[k].port[didx];
+}
 
-	/* Reply direction: WIRE key (index 0), reversed */
-	memcpy(conn->rep_saddr, ev->key[0].addr[didx], alen);
-	memcpy(conn->rep_daddr, ev->key[0].addr[sidx], alen);
-	conn->rep_sport = ev->key[0].port[didx];
-	conn->rep_dport = ev->key[0].port[sidx];
+/* Record a PF state's wire tuple under its role (entering or leaving). */
+static void
+conn_note_state(struct cmm_conn *conn, const struct pfn_event *ev)
+{
+	if (ev->direction == PF_IN) {
+		pfn_key_tuple(ev, 0, conn->in_saddr, conn->in_daddr,
+		    &conn->in_sport, &conn->in_dport);
+		conn->have_states |= CONN_S_IN;
+	} else {
+		pfn_key_tuple(ev, 0, conn->out_saddr, conn->out_daddr,
+		    &conn->out_sport, &conn->out_dport);
+		conn->have_states |= CONN_S_OUT;
+	}
+}
+
+static time_t
+conn_now(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (ts.tv_sec);
+}
+
+/*
+ * Set the tuples CDX matches, as packets reach the router - the same as
+ * ASK's conntrack orig/reply tuples.  Original: as the flow enters (the
+ * entering state's wire key).  Reply: as it comes back where the flow
+ * leaves (the leaving state's wire key, reversed).  A state not seen yet
+ * is taken as untranslated (the identity key).  Right for outbound NAT,
+ * port forwards, NAT reflection and plain routing alike.
+ *
+ * If the tuples change, the flow first leaves CDX under the old ones.
+ */
+static void
+conn_update_tuples(struct cmm_global *g, struct cmm_conn *conn)
+{
+	uint8_t os[16], od[16], rs[16], rd[16];
+	uint16_t osp, odp, rsp, rdp;
+
+	if (conn->have_states & CONN_S_IN) {
+		memcpy(os, conn->in_saddr, 16);
+		memcpy(od, conn->in_daddr, 16);
+		osp = conn->in_sport;
+		odp = conn->in_dport;
+	} else {
+		memcpy(os, conn->key_saddr, 16);
+		memcpy(od, conn->key_daddr, 16);
+		osp = conn->key_sport;
+		odp = conn->key_dport;
+	}
+	if (conn->have_states & CONN_S_OUT) {
+		memcpy(rs, conn->out_daddr, 16);
+		memcpy(rd, conn->out_saddr, 16);
+		rsp = conn->out_dport;
+		rdp = conn->out_sport;
+	} else {
+		memcpy(rs, conn->key_daddr, 16);
+		memcpy(rd, conn->key_saddr, 16);
+		rsp = conn->key_dport;
+		rdp = conn->key_sport;
+	}
+
+	if (memcmp(os, conn->orig_saddr, 16) == 0 &&
+	    memcmp(od, conn->orig_daddr, 16) == 0 &&
+	    osp == conn->orig_sport && odp == conn->orig_dport &&
+	    memcmp(rs, conn->rep_saddr, 16) == 0 &&
+	    memcmp(rd, conn->rep_daddr, 16) == 0 &&
+	    rsp == conn->rep_sport && rdp == conn->rep_dport)
+		return;
+
+	conn_offload_stop(g, conn, 1);
+
+	memcpy(conn->orig_saddr, os, 16);
+	memcpy(conn->orig_daddr, od, 16);
+	conn->orig_sport = osp;
+	conn->orig_dport = odp;
+	memcpy(conn->rep_saddr, rs, 16);
+	memcpy(conn->rep_daddr, rd, 16);
+	conn->rep_sport = rsp;
+	conn->rep_dport = rdp;
+
+	/* Both routes follow these addresses - re-resolve them. */
+	if (conn->orig_route != NULL) {
+		cmm_route_put(conn->orig_route);
+		conn->orig_route = NULL;
+	}
+	if (conn->rep_route != NULL) {
+		cmm_route_put(conn->rep_route);
+		conn->rep_route = NULL;
+	}
 }
 
 /*
@@ -1001,10 +1110,11 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 	osport = ev->key[1].port[sidx];
 	odport = ev->key[1].port[didx];
 
-	/* Check deny rules */
+	/* A deny rule matching either of the flow's states keeps the whole
+	 * flow in software, the same as a state PF must see. */
 	if (cmm_deny_check_tuple(af, proto, osaddr, odaddr,
 	    osport, odport, ev->ifname))
-		return;
+		no_offload = 1;
 
 	conn = conn_find_5tuple(af, proto, osaddr, odaddr, osport, odport);
 	if (conn != NULL) {
@@ -1018,54 +1128,23 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 			conn->flags |= CONN_F_NO_OFFLOAD;
 		}
 
-		/* Existing connection — handle NAT upgrade. This is the
-		 * normal, expected path for NAT'd connections (the companion
-		 * PF_OUT state's READY event arriving after the connection's
-		 * own creation) — confirmed both correct and routine on
-		 * hardware, so this stays at DEBUG rather than a level that
-		 * would log on nearly every NAT'd connection in production. */
-		if (is_nat && !(conn->flags & CONN_F_HAS_NAT)) {
-			cmm_print(CMM_LOG_DEBUG,
-			    "conn: NAT upgrade from push event");
-
-			/* Re-offloading below pins the new state pair. */
-			conn_offload_stop(g, conn, 1);
-
-			/* Update reply tuples from wire key */
-			memcpy(conn->rep_saddr,
-			    ev->key[0].addr[didx], alen);
-			memcpy(conn->rep_daddr,
-			    ev->key[0].addr[sidx], alen);
-			conn->rep_sport = ev->key[0].port[didx];
-			conn->rep_dport = ev->key[0].port[sidx];
-
-			if (conn->rep_route != NULL) {
-				cmm_route_put(conn->rep_route);
-				conn->rep_route = NULL;
-			}
-
-			/* Don't apply this event's rt_ifindex to the reply
-			 * direction. FreeBSD pf uses one state per connection,
-			 * so this is the same state's outbound route-to hint,
-			 * not an independent decision for the reply path. */
-
-			/* Save NAT companion PF state ID */
-			conn->pf_id_nat = ev->id;
-			conn->pf_creatorid_nat = ev->creatorid;
-			conn->pf_has_nat_id = 1;
-
-			conn->flags |= CONN_F_HAS_NAT | CONN_F_NAT_COMPANION;
-		} else if (!is_nat && !conn->pf_has_nat_id &&
-		    (ev->id != conn->pf_id ||
+		/* The flow's other PF state.  With both known the CDX tuples
+		 * are exact; if a one-state guess was already offloaded and was
+		 * wrong, it comes out of CDX here. */
+		if (!conn->pf_has_nat_id && (ev->id != conn->pf_id ||
 		    ev->creatorid != conn->pf_creatorid)) {
-			/* The flow's other PF state became ready after this conn
-			 * was created. Track it so stats-sync keeps it alive too,
-			 * or PF expires it mid-flow (UDP: 30s). */
 			conn->pf_id_nat = ev->id;
 			conn->pf_creatorid_nat = ev->creatorid;
+			conn->pf_direction_nat = ev->direction;
 			conn->pf_has_nat_id = 1;
+			if (is_nat)
+				conn->flags |= CONN_F_HAS_NAT |
+				    CONN_F_NAT_COMPANION;
 
-			/* Already in CDX: pin the new state too. */
+			conn_note_state(conn, ev);
+			conn_update_tuples(g, conn);
+
+			/* Still in CDX: pin the new state too. */
 			if ((conn->flags & CONN_F_PINNED) &&
 			    conn_pin(g, conn, 1) < 0) {
 				conn_offload_stop(g, conn, 1);
@@ -1091,7 +1170,13 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 	if (conn == NULL)
 		return;
 
-	pfn_extract_tuples(conn, ev);
+	conn->af = af;
+	conn->proto = proto;
+	pfn_key_tuple(ev, 1, conn->key_saddr, conn->key_daddr,
+	    &conn->key_sport, &conn->key_dport);
+	conn_note_state(conn, ev);
+	conn_update_tuples(g, conn);
+	conn->created = conn_now();
 	conn->pf_id = ev->id;
 	conn->pf_creatorid = ev->creatorid;
 	conn->pf_direction = ev->direction;
@@ -1111,8 +1196,8 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 		unsigned int h;
 
 		h = conn_hash_5tuple(conn->af, conn->proto,
-		    conn->orig_saddr, conn->orig_daddr,
-		    conn->orig_sport, conn->orig_dport);
+		    conn->key_saddr, conn->key_daddr,
+		    conn->key_sport, conn->key_dport);
 		list_add(&conn_hash[h], &conn->hash_entry);
 		conn_count++;
 	}
@@ -1121,10 +1206,9 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 	if (conn->flags & CONN_F_NO_OFFLOAD)
 		return;
 
-	if (conn_try_offload(g, conn) < 0) {
-		cmm_print(CMM_LOG_DEBUG,
-		    "conn: offload deferred (route/neigh pending)");
-	}
+	/* Usually waits here for the flow's other state (see
+	 * conn_try_offload()). */
+	conn_try_offload(g, conn);
 }
 
 /*
@@ -1601,6 +1685,39 @@ done_scan:
  * packet through PF to re-offload; without pinning, the retry pass
  * re-offloads it if the PF state is still alive.
  */
+/*
+ * Find a conn by the original tuple CDX was given.  That's the identity
+ * key for everything but a port forward, so try the hash first and only
+ * scan when it misses.
+ */
+static struct cmm_conn *
+conn_find_cdx(sa_family_t af, uint8_t proto, const void *saddr,
+    const void *daddr, uint16_t sport, uint16_t dport)
+{
+	struct cmm_conn *conn;
+	struct list_head *pos;
+	int i, alen;
+
+	alen = (af == AF_INET) ? 4 : 16;
+	conn = conn_find_5tuple(af, proto, saddr, daddr, sport, dport);
+	if (conn != NULL)
+		return (conn);
+
+	for (i = 0; i < CONN_HASH_SIZE; i++) {
+		for (pos = list_first(&conn_hash[i]);
+		    pos != &conn_hash[i]; pos = list_next(pos)) {
+			conn = container_of(pos, struct cmm_conn, hash_entry);
+			if (conn->af == af && conn->proto == proto &&
+			    conn->orig_sport == sport &&
+			    conn->orig_dport == dport &&
+			    memcmp(conn->orig_saddr, saddr, alen) == 0 &&
+			    memcmp(conn->orig_daddr, daddr, alen) == 0)
+				return (conn);
+		}
+	}
+	return (NULL);
+}
+
 static void
 conn_cdx_removed(struct cmm_conn *conn, const char *family,
     const char *reason)
@@ -1642,7 +1759,7 @@ cmm_conn_fci_event(unsigned short fcode, unsigned short len,
 		reason = (cmd->action == FPP_ACTION_TCP_FIN) ?
 		    "tcp_fin" : "timeout";
 
-		conn = conn_find_5tuple(AF_INET, cmd->protocol,
+		conn = conn_find_cdx(AF_INET, cmd->protocol,
 		    &cmd->saddr, &cmd->daddr,
 		    cmd->sport, cmd->dport);
 		if (conn == NULL) {
@@ -1672,7 +1789,7 @@ cmm_conn_fci_event(unsigned short fcode, unsigned short len,
 		reason = (cmd->action == FPP_ACTION_TCP_FIN) ?
 		    "tcp_fin" : "timeout";
 
-		conn = conn_find_5tuple(AF_INET6, cmd->protocol,
+		conn = conn_find_cdx(AF_INET6, cmd->protocol,
 		    cmd->saddr, cmd->daddr,
 		    cmd->sport, cmd->dport);
 		if (conn == NULL) {
