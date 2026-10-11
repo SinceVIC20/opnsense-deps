@@ -63,4 +63,6 @@ echo
 grep -h "url:" /usr/local/etc/pkg/repos/OPNsense.conf /usr/local/etc/pkg/repos/MonoGateway.conf
 echo
 echo "Done. Use System > Firmware > Updates as normal."
+echo "During the update the page can look frozen for several minutes. Don't power off;"
+echo "the router finishes, restarts by itself and comes back (up to about 10 minutes)."
 echo "Previous config saved as /root/config-before-temp-updates.xml"
