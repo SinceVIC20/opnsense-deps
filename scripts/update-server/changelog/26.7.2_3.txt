@@ -1,0 +1,9 @@
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes upgrades safe and lets routers with ZFS disks upgrade too.
+
+- kernel: starts from both UFS and ZFS disks, so routers installed from Mono's official 26.1 and 26.7 images can upgrade
+- kernel: restarts by itself 15 seconds after a crash instead of waiting at the debugger prompt
+- firmware: a new kernel is tested once; if it doesn't start or comes up broken, the router goes back to its previous version by itself
+- firmware: a release that failed on a router isn't offered to it again until a fixed release is posted
+- firmware: after a rollback, the dashboard shows a short report to post on the Mono Discord
+- firmware: changelog and bogon lists now download from the update server (they were a 404 before)
+- offload: restarting cmm now waits for the old copy to exit, so offload keeps working after repeated restarts

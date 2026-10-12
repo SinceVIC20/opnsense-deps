@@ -14,6 +14,7 @@ OUT=${2:?usage: publish-update-server.sh <release> <outdir>}
 KEYDIR=${KEYDIR:-/root/signing}
 SETSDIR=${SETSDIR:-/usr/local/opnsense/build/26.7/aarch64/sets}
 MONOPKG=${MONOPKG:-$(ls /usr/deps/dist/mono-gateway-*.pkg)}
+SAFETYPKG=${SAFETYPKG:-$(ls /usr/deps/dist/mono-upgrade-safety-*.pkg)}
 SERIES=26.7
 ABI=FreeBSD:15:aarch64
 ARCH=aarch64
@@ -26,6 +27,8 @@ XPREFIX=aarch64-unknown-freebsd15.0
 
 [ -f "${KEY}" ] || { echo "ERROR: no signing key in ${KEYDIR}"; exit 1; }
 [ -f "${MONOPKG}" ] || { echo "ERROR: expected one mono-gateway package, got: ${MONOPKG}"; exit 1; }
+[ -f "${SAFETYPKG}" ] || { echo "ERROR: expected one mono-upgrade-safety package (make safety-package), got: ${SAFETYPKG}"; exit 1; }
+[ "$(tar -xOf ${SAFETYPKG} /usr/local/share/mono-upgrade/release 2>/dev/null)" = "${RELEASE}" ] || { echo "ERROR: ${SAFETYPKG} does not carry release ${RELEASE}"; exit 1; }
 [ ! -e "${OUT}" ] || { echo "ERROR: ${OUT} already exists"; exit 1; }
 
 find_one()
@@ -99,8 +102,8 @@ fi
 for f in ${TOP}/latest/Latest/*.pkg; do sign_file ${f}; done
 sign_repo ${TOP}/latest
 
-echo ">>> mono: $(basename ${MONOPKG})"
-cp ${MONOPKG} ${TOP}/mono/All/
+echo ">>> mono: $(basename ${MONOPKG}) $(basename ${SAFETYPKG})"
+cp ${MONOPKG} ${SAFETYPKG} ${TOP}/mono/All/
 sign_repo ${TOP}/mono
 
 echo ">>> base: $(basename ${BASESET}) -> base-${RELEASE}-${ARCH}.txz"
