@@ -183,6 +183,7 @@ void ct_remove(PCtEntry pEntry_orig)
 {
 	PCT_PAIR ppair = container_of(pEntry_orig, CT_PAIR, orig);
 	PCtEntry pEntry_rep = &ppair->repl;
+	int rc;
 
 	cdx_timer_del(&ppair->timer);
 
@@ -191,9 +192,12 @@ void ct_remove(PCtEntry pEntry_orig)
 	 * wrapper, so there is nothing left here to dispose of - including
 	 * after an earlier CONNTRACK_DEL_FAILED, where ct is already NULL
 	 * and the table entry was deliberately abandoned (ISSUES.md A95). */
-	if ((pEntry_orig->status & CONNTRACK_HWSET) && delete_entry_from_classif_table(pEntry_orig))
+	/* An unsynced delete is counted and parked, so it isn't logged. */
+	if ((pEntry_orig->status & CONNTRACK_HWSET) &&
+	    (rc = delete_entry_from_classif_table(pEntry_orig)) && rc != EN_EHASH_DELETE_UNSYNCED)
 		DPRINT_ERROR("failed to delete orig entry\n");
-	if ((pEntry_rep->status & CONNTRACK_HWSET) && delete_entry_from_classif_table(pEntry_rep))
+	if ((pEntry_rep->status & CONNTRACK_HWSET) &&
+	    (rc = delete_entry_from_classif_table(pEntry_rep)) && rc != EN_EHASH_DELETE_UNSYNCED)
 		DPRINT_ERROR("failed to delete reply entry\n");
 
 	IP_delete_CT_route(pEntry_orig);
