@@ -14,6 +14,9 @@ REPOSCRIPT=/usr/local/opnsense/scripts/firmware/repos/MonoGateway.php
 echo "Switching updates back to ${OFFICIAL}."
 cp /conf/config.xml /root/config-before-official-updates.xml
 
+# Undo the safety package's server settings; its kernel checks stay in place.
+[ -x /usr/local/sbin/mono-upgrade ] && /usr/local/sbin/mono-upgrade remove
+
 # Stop trusting the temporary server's key.
 rm -f ${FPDIR}/mono-opnsense.sincevic20.com.*
 rm -f ${REPOSCRIPT}
@@ -57,4 +60,5 @@ grep -h "url:" /usr/local/etc/pkg/repos/OPNsense.conf /usr/local/etc/pkg/repos/M
 echo
 echo "Done. Updates now come from Mono's official server."
 echo "Note: Mono's builds only include fixes Mono has merged."
+[ -x /usr/local/sbin/mono-upgrade ] && echo "The safe-upgrade checks stay installed; 'pkg delete mono-upgrade-safety' removes them."
 echo "Previous config saved as /root/config-before-official-updates.xml"

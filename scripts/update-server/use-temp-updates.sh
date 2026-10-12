@@ -8,9 +8,6 @@ SERVER=${SERVER:-https://mono-opnsense.sincevic20.com}
 FPDIR=/usr/local/etc/pkg/fingerprints/OPNsense/trusted
 FPFILE=${FPDIR}/mono-opnsense.sincevic20.com.20261008
 REPOSCRIPT=/usr/local/opnsense/scripts/firmware/repos/MonoGateway.php
-KERNELHOOK=/usr/local/etc/rc.syshook.d/stop/20-kernel-update
-# The 26.7 release a 26.1 router upgrades to.
-UPGRADE_RELEASE=26.7.2_2
 
 [ "$(sysctl -n kern.ident)" = "MONO-GATEWAY" ] || { echo "This is not a Mono Gateway, nothing changed."; exit 1; }
 [ "$(id -u)" = 0 ] || { echo "Run this as root."; exit 1; }
@@ -28,12 +25,9 @@ case "${SERIES}" in
 	;;
 esac
 
+# The upgrade writes the new kernel to the boot partition and needs room for its sets.
+mount | grep -q ' on /boot/msdos ' && [ -f /boot/msdos/kernel.img ] || { echo "The boot partition (/boot/msdos) is not mounted, so updates can't install a kernel."; echo "Nothing changed."; exit 1; }
 if [ "${SERIES}" = "26.1" ]; then
-	# The 26.7 kernel can only start from a UFS root, official 26.1 images use ZFS.
-	ROOTFS=$(mount -p | awk '$2 == "/" { print $3 }')
-	[ "${ROOTFS}" = "ufs" ] || { echo "This router's disk uses ${ROOTFS}, the upgrade to 26.7 doesn't support that yet."; echo "Nothing changed."; exit 1; }
-	# The upgrade writes the new kernel to the boot partition and needs room for its sets.
-	mount | grep -q ' on /boot/msdos ' && [ -f /boot/msdos/kernel.img ] || { echo "The boot partition (/boot/msdos) is not mounted, so the upgrade can't install its kernel."; echo "Nothing changed."; exit 1; }
 	FREE=$(df -k / | awk 'NR == 2 { print $4 }')
 	[ "${FREE}" -ge 1048576 ] || { echo "The upgrade needs 1 GB free on /, this router has $((FREE / 1024)) MB."; echo "Nothing changed."; exit 1; }
 fi
@@ -81,45 +75,36 @@ php /tmp/set-mirror.php "${SERVER}"
 rm /tmp/set-mirror.php
 configctl firmware configure > /dev/null
 
-if [ "${SERIES}" = "26.1" ]; then
-	# Tells Check for updates to offer the 26.7 upgrade, as OPNsense's own 26.1 updates would.
-	sed -i '' '/^UPGRADE_/d' /usr/local/etc/opnsense-update.conf
-	cat >> /usr/local/etc/opnsense-update.conf <<EOF
-UPGRADE_RELEASE="${UPGRADE_RELEASE}"
-UPGRADE_HINT="FreeBSD:15:aarch64/26.7"
-EOF
-	# Early 26.1 images lack the hook that moves a new kernel to the boot partition.
-	if [ ! -f ${KERNELHOOK} ]; then
-		mkdir -p $(dirname ${KERNELHOOK})
-		cat > ${KERNELHOOK} <<'EOF'
-#!/bin/sh
-
-# move kernel and copy Gateway dtb to FAT partition after kernel update
-if [ -f /boot/kernel/kernel.bin ]; then
-    INSTALLED_KERNEL=$(cat /usr/local/opnsense/version/kernel)
-    if [ "${INSTALLED_KERNEL}" != "26.1.3" ]; then
-        cp /boot/msdos/kernel.img /boot/msdos/kernel.old
-        mv /boot/kernel/kernel.bin /boot/msdos/kernel.img
-        cp /boot/msdos/dtb/mono-gateway-dk.dtb /boot/msdos/dtb/mono-gateway-dk.old
-        cp /boot/dtb/freescale/mono-gateway-dk.dtb /boot/msdos/dtb/
-    fi
+# The safety package tests new kernels, rolls back failed upgrades and offers the upgrade.
+echo "Installing the safe-upgrade package."
+if ! { pkg update -f -r MonoGateway > /dev/null && pkg install -fy -r MonoGateway mono-upgrade-safety > /dev/null; }; then
+	echo "Could not install the safe-upgrade package from ${SERVER}."
+	echo "Updates are switched, but nothing is offered yet. Run this script again later."
+	exit 1
 fi
-EOF
-		chmod 755 ${KERNELHOOK}
-	fi
-fi
+/usr/local/sbin/mono-upgrade prepare || true
 
 echo
 grep -h "url:" /usr/local/etc/pkg/repos/OPNsense.conf /usr/local/etc/pkg/repos/MonoGateway.conf
 echo
-if [ "${SERIES}" = "26.1" ]; then
-	echo "Done. Use System > Firmware > Updates > Check for updates: it offers the upgrade to 26.7."
+echo "Previous config saved as /root/config-before-temp-updates.xml"
+echo
+if [ "${SERIES}" = "26.1" ] && ! grep -qw "$(mount -p | awk '$2 == "/" { print $3 }')" /usr/local/share/mono-upgrade/rootfs; then
+	echo "Note: this router's disk isn't supported by the 26.7 upgrade yet, so it isn't offered."
+	echo "Updates now come from ${SERVER}; the offer appears once a release supports it."
+elif [ "${SERIES}" = "26.1" ]; then
+	echo "Done. Check for updates (System > Firmware > Updates) now offers the upgrade to 26.7."
 	echo "The upgrade restarts the router three times by itself and can take about 20 minutes."
 	echo "The page can look frozen meanwhile. Don't power off until the login page is back."
-	echo "Afterwards, run Check for updates once more to bring back any plugins."
+	echo "If anything goes wrong, the router goes back to 26.1 by itself and the dashboard says so."
 else
 	echo "Done. Use System > Firmware > Updates as normal."
 	echo "During the update the page can look frozen for several minutes. Don't power off;"
 	echo "the router finishes, restarts by itself and comes back (up to about 10 minutes)."
 fi
-echo "Previous config saved as /root/config-before-temp-updates.xml"
+if [ -f /var/db/mono-upgrade/restart-needed ]; then
+	echo
+	echo "The router restarts in 20 seconds to finish the setup (Ctrl-C to restart later yourself)."
+	sleep 20
+	shutdown -r now
+fi
