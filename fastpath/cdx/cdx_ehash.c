@@ -784,7 +784,7 @@ int delete_entry_from_classif_table(PCtEntry entry)
 
 	rc = cdx_ehash_delete_entry(entry->ct->td, entry->ct->index,
 			entry->ct->handle);
-	if (rc)
+	if (rc && rc != EN_EHASH_DELETE_UNSYNCED)
 		DPA_ERROR("%s::unable to remove entry from hash table\n", __FUNCTION__);
 
 	/* REPLICATE_PKT replicas are chain-only state, never independently
@@ -814,7 +814,7 @@ int delete_pppoe_relay_entry_from_classif_table(pPPPoE_Info entry)
 		hw_ct_free_siblings(ct);
 
 	rc = cdx_ehash_delete_entry(ct->td, ct->index, ct->handle);
-	if (rc)
+	if (rc && rc != EN_EHASH_DELETE_UNSYNCED)
 		DPA_ERROR("%s::unable to remove entry from hash table\n", __FUNCTION__);
 
 	kfree(ct);
@@ -843,7 +843,7 @@ int delete_l2br_entry_classif_table(struct L2Flow_entry *entry)
 			if (ct->td) {
 				rc = cdx_ehash_delete_entry(ct->td, ct->index,
 						ct->handle);
-				if (rc) {
+				if (rc && rc != EN_EHASH_DELETE_UNSYNCED) {
 					DPA_ERROR("%s::unable to remove entry from hash table\n",
 							__FUNCTION__);
 				}
