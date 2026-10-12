@@ -1,0 +1,4 @@
+#!/bin/sh
+
+# Refuse an upgrade that already failed on this router.
+exec /usr/local/sbin/mono-upgrade precheck

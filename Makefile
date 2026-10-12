@@ -269,6 +269,43 @@ package: all
 	    -r ${PKG_STAGEDIR} -o ${DISTDIR}/
 	@echo "==> Package: ${DISTDIR}/mono-gateway-${PKG_VERSION}.pkg"
 
+# Safe-upgrade package: scripts only, installs on 26.1 and 26.7.
+# make safety-package SAFETY_RELEASE=26.7.2_3 [SAFETY_REV=1 for a script-only fix]
+SAFETY_DIR=	${OPSDIR}/safe-upgrade
+SAFETY_STAGEDIR=	${BUILDDIR}/safety-stage
+SAFETY_REV?=	0
+.if ${SAFETY_REV} != "0"
+SAFETY_VERSION?=	${SAFETY_RELEASE:S/_/./g}_${SAFETY_REV}
+.else
+SAFETY_VERSION?=	${SAFETY_RELEASE:S/_/./g}
+.endif
+SAFETY_ROOTFS?=	ufs zfs
+
+safety-package:
+	@test -n "${SAFETY_RELEASE}" || { echo "Set SAFETY_RELEASE, e.g. 26.7.2_3"; exit 1; }
+	@rm -f ${DISTDIR}/mono-upgrade-safety-*.pkg
+	@rm -rf ${SAFETY_STAGEDIR}
+	mkdir -p ${SAFETY_STAGEDIR}/usr/local/sbin \
+	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/early \
+	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/stop \
+	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/upgrade \
+	    ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade \
+	    ${SAFETY_STAGEDIR}/usr/local/opnsense/mvc/app/library/OPNsense/System/Status
+	install -m 755 ${SAFETY_DIR}/mono-upgrade ${SAFETY_DIR}/mono-safe-disk ${SAFETY_STAGEDIR}/usr/local/sbin/
+	install -m 755 ${SAFETY_DIR}/hooks/04-mono-upgrade ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/early/
+	install -m 755 ${SAFETY_DIR}/hooks/10-mono-kernel ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/stop/
+	install -m 755 ${SAFETY_DIR}/hooks/20-mono-safety ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/upgrade/
+	install -m 644 ${SAFETY_DIR}/mono-boot.txt ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade/
+	echo "${SAFETY_RELEASE}" > ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade/release
+	echo "${SAFETY_ROOTFS}" > ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade/rootfs
+	echo "${SAFETY_VERSION}" > ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade/version
+	install -m 644 ${SAFETY_DIR}/MonoUpgradeStatus.php \
+	    ${SAFETY_STAGEDIR}/usr/local/opnsense/mvc/app/library/OPNsense/System/Status/
+	sed 's/%%VERSION%%/${SAFETY_VERSION}/' ${SAFETY_DIR}/pkg/+MANIFEST > ${SAFETY_STAGEDIR}/+MANIFEST
+	pkg create -M ${SAFETY_STAGEDIR}/+MANIFEST -p ${SAFETY_DIR}/pkg/plist \
+	    -r ${SAFETY_STAGEDIR} -o ${DISTDIR}/
+	@echo "==> Package: ${DISTDIR}/mono-upgrade-safety-${SAFETY_VERSION}.pkg (release ${SAFETY_RELEASE})"
+
 # ============================================================
 # Full image build (kernel, modules, userspace, package, image)
 # ============================================================

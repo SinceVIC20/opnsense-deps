@@ -1,0 +1,429 @@
+#!/bin/sh
+# Safe upgrades for the Mono Gateway: tests a new kernel once, rolls back by
+# itself when it fails, and holds back a release that failed on this router.
+#   mono-upgrade prepare    one-time setup, run by use-temp-updates.sh
+#   mono-upgrade boot       early boot hook
+#   mono-upgrade shutdown   stop hook, moves a new kernel to the boot partition
+#   mono-upgrade precheck   upgrade hook, refuses a release that failed here
+#   mono-upgrade decide     sets or clears the upgrade offer
+#   mono-upgrade remove     undoes decide's changes, run by use-official-updates.sh
+#   mono-upgrade status     shows the current state
+
+STATE=/var/db/mono-upgrade
+HISTORY=${STATE}/history.log
+SHARE=/usr/local/share/mono-upgrade
+REPORT=/root/upgrade-failed.txt
+DISK=/usr/local/sbin/mono-safe-disk
+VERSIONDIR=/usr/local/opnsense/version
+WORKPREFIX=/var/cache/opnsense-update
+UPDATECONF=/usr/local/etc/opnsense-update.conf
+REPOCONF=/usr/local/etc/pkg/repos/OPNsense.conf
+BOOT=/boot
+M=${BOOT}/msdos
+DTB=${M}/dtb/mono-gateway-dk.dtb
+
+mkdir -p ${STATE}
+
+say()
+{
+	echo ">>> mono-upgrade: $*"
+}
+
+history()
+{
+	# date | from -> to | disk and boot | result | stage | reason
+	echo "$(date '+%Y-%m-%d %H:%M') | ${1} -> ${2} | $(rootfs) $(armed_word) | ${3} | ${4} | ${5}" >> ${HISTORY}
+}
+
+failed_here()
+{
+	awk -F ' \\| ' -v t="${1}" '$4 == "rolled-back" { n = split($2, a, " -> "); if (a[n] == t) f = $0 } END { if (f) print f }' ${HISTORY} 2>/dev/null
+}
+
+rootfs()
+{
+	mount -p | awk '$2 == "/" { print $3 }'
+}
+
+rootspec()
+{
+	mount -p | awk '$2 == "/" { print $3 ":" $1 }'
+}
+
+armed_word()
+{
+	[ -f ${STATE}/armed ] && echo "rollback-armed" || echo "rollback-not-armed"
+}
+
+copy_verified()
+{
+	cp "${1}" "${2}.new" && cmp -s "${1}" "${2}.new" && mv "${2}.new" "${2}"
+}
+
+health()
+{
+	mount -p | awk '$2 == "/" { print $4 }' | grep -qw rw || { echo "root file system is read-only"; return 1; }
+	mount | grep -q " on ${M} " || { echo "boot partition is not mounted"; return 1; }
+	PORTS=$(ifconfig -l | tr ' ' '\n' | grep -c '^dtsec')
+	WANT=$(cat ${STATE}/ports 2>/dev/null || echo 1)
+	[ "${PORTS}" -ge "${WANT}" ] || { echo "only ${PORTS} of ${WANT} network ports found"; return 1; }
+	return 0
+}
+
+sanitize()
+{
+	sed -E -e 's/([0-9]{1,3}\.){3}[0-9]{1,3}/x.x.x.x/g' \
+	    -e 's/([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}/xx:xx:xx:xx:xx:xx/g' \
+	    -e 's/[0-9a-fA-F]{1,4}(:[0-9a-fA-F]{0,4}){3,7}/x:x::x/g'
+}
+
+cancel_upgrade()
+{
+	[ -f ${WORKPREFIX}/.upgrade.log ] && cp ${WORKPREFIX}/.upgrade.log ${STATE}/last-upgrade.log
+	opnsense-update -e > /dev/null 2>&1
+}
+
+report()
+{
+	# report <from> <to> <stage> <reason>, short enough for one Discord message
+	LIMIT=1200
+	FOOT='```'
+	{
+		echo '```'
+		echo "Mono upgrade failed, rolled back"
+		echo "Was:    ${1} ($(rootfs), $(armed_word))"
+		echo "Target: ${2}"
+		echo "Stage:  ${3}"
+		echo "Reason: ${4}"
+		echo "Time:   $(date '+%Y-%m-%d %H:%M')"
+		echo "Safety: $(cat ${SHARE}/version 2>/dev/null)"
+		echo "Log:"
+	} | sanitize > ${REPORT}
+	tail -n 8 ${STATE}/last-upgrade.log 2>/dev/null | sanitize | cut -c 1-80 | while read -r LINE; do
+		[ $(( $(wc -c < ${REPORT}) + ${#LINE} + 6 )) -lt ${LIMIT} ] && echo "  ${LINE}" >> ${REPORT}
+	done
+	echo "${FOOT}" >> ${REPORT}
+	echo "When a fix is posted: Check for updates, Update, then Upgrade." >> ${REPORT}
+	touch ${STATE}/notice
+	# Shown in System > Firmware > Updates > Log as well.
+	mkdir -p ${WORKPREFIX}
+	cp ${REPORT} ${WORKPREFIX}/.upgrade.log
+}
+
+save_running_kernel()
+{
+	mkdir -p ${STATE}/kernel-version
+	cp ${VERSIONDIR}/kernel* ${STATE}/kernel-version/ 2>/dev/null
+	rm -f ${STATE}/kernel-version/kernel.lock
+}
+
+rollback()
+{
+	# rollback <new|old> <stage> <reason>: which kernel is running now
+	FROM=$(cat ${STATE}/kernel-version/kernel 2>/dev/null || echo unknown)
+	TO=$(cat ${STATE}/attempt 2>/dev/null || cat ${VERSIONDIR}/kernel)
+	MAJOR=
+	[ -f ${WORKPREFIX}/.base.pending -o -f ${WORKPREFIX}/.pkgs.pending ] && MAJOR=1
+
+	say "rolling back: ${3}"
+	if [ -f ${M}/kernel.old ]; then
+		cp ${M}/kernel.img ${M}/kernel.failed 2>/dev/null
+		copy_verified ${M}/kernel.old ${M}/kernel.img
+	fi
+	if [ -f ${M}/dtb/mono-gateway-dk.old ]; then
+		copy_verified ${M}/dtb/mono-gateway-dk.old ${DTB}
+	fi
+	if [ -d ${BOOT}/kernel.old ]; then
+		[ -d ${BOOT}/kernel.failed ] && { chflags -R 0 ${BOOT}/kernel.failed; rm -rf ${BOOT}/kernel.failed; }
+		mv ${BOOT}/kernel ${BOOT}/kernel.failed
+		mv ${BOOT}/kernel.old ${BOOT}/kernel
+		kldxref ${BOOT}/kernel
+	fi
+	cp ${STATE}/kernel-version/kernel* ${VERSIONDIR}/ 2>/dev/null
+
+	# A failed kernel update on 26.7 is held back with OPNsense's own kernel lock.
+	if [ -z "${MAJOR}" -a ! -f ${VERSIONDIR}/kernel.lock ]; then
+		opnsense-update -kL > /dev/null 2>&1
+		echo "${TO}" > ${STATE}/kernel.lock.ours
+	fi
+
+	cancel_upgrade
+	history "${FROM}" "${TO}" rolled-back "${2}" "${3}"
+	report "${FROM}" "${TO}" "${2}" "${3}"
+	${DISK} record set idle 2> /dev/null
+	rm -f ${STATE}/swapped ${STATE}/attempt
+	decide
+	sync
+
+	if [ "${1}" = "new" ]; then
+		say "restarting into the previous kernel"
+		reboot
+		sleep 60
+	fi
+}
+
+set_offer()
+{
+	if ! grep -q "^UPGRADE_RELEASE=\"${1}\"" ${UPDATECONF} 2> /dev/null; then
+		sed -i '' '/^UPGRADE_/d' ${UPDATECONF}
+		echo "UPGRADE_RELEASE=\"${1}\"" >> ${UPDATECONF}
+		echo "UPGRADE_HINT=\"FreeBSD:15:aarch64/26.7\"" >> ${UPDATECONF}
+	fi
+}
+
+clear_offer()
+{
+	sed -i '' '/^UPGRADE_/d' ${UPDATECONF} 2> /dev/null
+}
+
+decide()
+{
+	RELEASE=$(cat ${SHARE}/release)
+	SERIES=$(/usr/local/sbin/opnsense-version -a)
+	MIRROR=$(sed -n 's/.*url: *"\(https*:\/\/[^/]*\)\/.*/\1/p' ${REPOCONF} | head -n 1)
+
+	# Only while this router uses our server.
+	echo "${MIRROR}" | grep -q 'sincevic20' || return 0
+
+	# Changelog and bogons come from the factory default address, not the mirror,
+	# and neither OPNsense nor Mono publish them for aarch64.
+	if [ -f ${REPOCONF}.sample ] && ! grep -q "${MIRROR}" ${REPOCONF}.sample; then
+		[ -f ${STATE}/OPNsense.conf.sample.orig ] || cp ${REPOCONF}.sample ${STATE}/OPNsense.conf.sample.orig
+		sed -i '' -E "s#https?://[^/\"]+/\\$\{ABI\}#${MIRROR}/\${ABI}#" ${REPOCONF}.sample
+	fi
+
+	case "${SERIES}" in
+	26.1)
+		if ! grep -qw "$(rootfs)" ${SHARE}/rootfs; then
+			clear_offer
+		elif [ -n "$(failed_here ${RELEASE})" ]; then
+			clear_offer
+		else
+			set_offer ${RELEASE}
+		fi
+		;;
+	26.7)
+		if [ -f ${STATE}/kernel.lock.ours ] && [ "$(cat ${STATE}/kernel.lock.ours)" != "${RELEASE}" ]; then
+			opnsense-update -kU > /dev/null 2>&1
+			rm -f ${STATE}/kernel.lock.ours
+		fi
+		;;
+	esac
+}
+
+cmd_boot()
+{
+	REC=$(${DISK} record get 2> /dev/null || echo none)
+
+	case "${REC}" in
+	probe-seen)
+		touch ${STATE}/armed
+		${DISK} record set idle
+		;;
+	probe)
+		rm -f ${STATE}/armed
+		${DISK} record set idle
+		;;
+	pending)
+		# U-Boot did not run the check, so rollback is not armed after all.
+		rm -f ${STATE}/armed
+		${DISK} record set idle
+		touch ${STATE}/swapped
+		;;
+	tried)
+		if WHY=$(health); then
+			${DISK} record set idle
+			history "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "$(cat ${STATE}/attempt 2>/dev/null)" kernel-ok "kernel test" "new kernel started"
+		else
+			rollback new "kernel test" "new kernel started but ${WHY}"
+		fi
+		;;
+	fallback)
+		rollback old "kernel test" "new kernel did not start, fell back to the old one"
+		;;
+	esac
+
+	if [ -f ${STATE}/swapped ]; then
+		if WHY=$(health); then
+			rm -f ${STATE}/swapped
+		else
+			rollback new "kernel test" "new kernel started but ${WHY}"
+		fi
+	fi
+
+	# Base staged but its kernel never installed (crash or power loss mid-staging).
+	if [ -f ${WORKPREFIX}/.base.pending -a ! -f ${WORKPREFIX}/.kernel.pending ] && \
+	    [ "$(cat ${WORKPREFIX}/.base.pending)" != "$(cat ${VERSIONDIR}/kernel)" ]; then
+		cancel_upgrade
+		history "$(cat ${VERSIONDIR}/kernel)" "$(cat ${STATE}/attempt 2>/dev/null)" cancelled staging "base staged without its kernel"
+		rm -f ${STATE}/attempt
+	fi
+
+	if health > /dev/null && [ ! -f ${STATE}/swapped ]; then
+		if [ -f ${STATE}/attempt ] && [ ! -f ${WORKPREFIX}/.base.pending -a ! -f ${WORKPREFIX}/.pkgs.pending ]; then
+			history "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "$(cat ${STATE}/attempt)" ok done "upgrade finished"
+			rm -f ${STATE}/attempt ${STATE}/notice ${REPORT}
+		fi
+		if [ ! -f ${STATE}/attempt ]; then
+			save_running_kernel
+			ifconfig -l | tr ' ' '\n' | grep -c '^dtsec' > ${STATE}/ports
+		fi
+	fi
+
+	[ -f ${SHARE}/mono-boot.txt ] && ! cmp -s ${SHARE}/mono-boot.txt ${M}/mono-boot.txt && cp ${SHARE}/mono-boot.txt ${M}/mono-boot.txt
+	decide
+}
+
+refuse_kernel()
+{
+	NEW=$(cat ${VERSIONDIR}/kernel)
+	say "not installing kernel ${NEW}: ${1}"
+	rm -rf ${BOOT}/kernel
+	[ -d ${BOOT}/kernel.old ] && mv ${BOOT}/kernel.old ${BOOT}/kernel && kldxref ${BOOT}/kernel
+	cp ${STATE}/kernel-version/kernel* ${VERSIONDIR}/ 2>/dev/null
+	cancel_upgrade
+	history "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "${NEW}" rolled-back "kernel install" "${1}"
+	report "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "${NEW}" "kernel install" "${1}"
+	decide
+}
+
+cmd_shutdown()
+{
+	K=${BOOT}/kernel/kernel.bin
+	[ -f ${K} ] || return 0
+
+	NEW=$(cat ${VERSIONDIR}/kernel)
+	SPEC=$(rootspec)
+	if ! grep -a -q -F "${SPEC}" ${K}; then
+		refuse_kernel "new kernel cannot start from this router's disk (${SPEC})"
+		return 0
+	fi
+
+	# Room for a temporary copy of each kernel, plus the device tree.
+	rm -f ${M}/kernel.failed ${M}/*.new
+	NEED=$(( $(stat -f %z ${K}) * 2 / 1024 + 2048 ))
+	FREE=$(( $(df -k ${M} | awk 'NR == 2 { print $4 }') + $(stat -f %z ${M}/kernel.old 2>/dev/null || echo 0) / 1024 ))
+	if [ "${FREE}" -lt "${NEED}" ]; then
+		refuse_kernel "boot partition has ${FREE} KB free, needs ${NEED} KB"
+		return 0
+	fi
+
+	if [ -f ${M}/kernel.img ]; then
+		copy_verified ${M}/kernel.img ${M}/kernel.old || { refuse_kernel "could not keep the previous kernel"; return 0; }
+	fi
+	copy_verified ${K} ${M}/kernel.img || { refuse_kernel "could not write the new kernel"; return 0; }
+	rm -f ${K}
+	if [ -f ${BOOT}/dtb/freescale/mono-gateway-dk.dtb ]; then
+		[ -f ${DTB} ] && copy_verified ${DTB} ${M}/dtb/mono-gateway-dk.old
+		copy_verified ${BOOT}/dtb/freescale/mono-gateway-dk.dtb ${DTB}
+	fi
+
+	TARGET=$(opnsense-update -vR 2>/dev/null)
+	[ -f ${WORKPREFIX}/.base.pending -o -f ${WORKPREFIX}/.pkgs.pending ] || TARGET=${NEW}
+	echo "${TARGET:-${NEW}}" > ${STATE}/attempt
+
+	if [ -f ${STATE}/armed ] && ${DISK} record set pending 2> /dev/null; then
+		:
+	else
+		touch ${STATE}/swapped
+	fi
+	history "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "${TARGET:-${NEW}}" kernel-installed "kernel install" "testing new kernel ${NEW}"
+	sync
+}
+
+cmd_precheck()
+{
+	TARGET=$(opnsense-update -vR)
+	LINE=$(failed_here "${TARGET}")
+	if [ -n "${LINE}" ]; then
+		echo "${TARGET} failed on this router ($(echo "${LINE}" | cut -d '|' -f 1 | xargs)): $(echo "${LINE}" | awk -F ' \\| ' '{ print $6 }')."
+		echo "Waiting for a fixed release. The report to post is in ${REPORT}."
+		return 1
+	fi
+	if ! grep -qw "$(rootfs)" ${SHARE}/rootfs; then
+		echo "This release can't start from a $(rootfs) disk yet."
+		return 1
+	fi
+	if [ ! -x /usr/local/etc/rc.syshook.d/stop/10-mono-kernel ]; then
+		echo "The safe-upgrade kernel hook is missing."
+		return 1
+	fi
+	echo "Safe upgrade checks passed ($(armed_word))."
+}
+
+cap_emmc()
+{
+	# 175 MHz eMMC writes time out; Linux caps this controller at 167 MHz.
+	[ -f ${DTB} ] || return 0
+	TMP=$(mktemp -d)
+	dtc -q -I dtb -O dts -o ${TMP}/dk.dts ${DTB} || { rm -rf ${TMP}; return 1; }
+	if awk '/(mmc|esdhc)@1560000 \{/ { n = 1 } n && /max-frequency/ { f = 1 } n && /^\t*\};/ { n = 0 } END { exit !f }' ${TMP}/dk.dts; then
+		rm -rf ${TMP}
+		return 0
+	fi
+	awk '{ print } /(mmc|esdhc)@1560000 \{/ && !d { print "\t\t\tmax-frequency = <0x9f437c0>;"; d = 1 }' ${TMP}/dk.dts > ${TMP}/cap.dts
+	dtc -q -I dts -O dtb -o ${TMP}/cap.dtb ${TMP}/cap.dts && dtc -q -I dtb -O dts -o /dev/null ${TMP}/cap.dtb || { rm -rf ${TMP}; return 1; }
+	[ -f ${M}/dtb/mono-gateway-dk.pre-cap ] || cp ${DTB} ${M}/dtb/mono-gateway-dk.pre-cap
+	copy_verified ${TMP}/cap.dtb ${DTB}
+	rm -rf ${TMP}
+	touch ${STATE}/restart-needed
+	say "eMMC speed capped at 167 MHz (takes effect after a restart)"
+}
+
+cmd_prepare()
+{
+	mount | grep -q " on ${M} " || { say "boot partition not mounted"; return 1; }
+	cp ${SHARE}/mono-boot.txt ${M}/mono-boot.txt
+	cap_emmc || say "could not cap the eMMC speed"
+	save_running_kernel
+	ifconfig -l | tr ' ' '\n' | grep -c '^dtsec' > ${STATE}/ports
+
+	if [ ! -f ${STATE}/armed ]; then
+		REC=$(${DISK} record get 2> /dev/null)
+		if [ "${REC}" = "foreign" -o -z "${REC}" ]; then
+			say "rollback not available on this router (record block in use)"
+		elif ${DISK} env install > /dev/null 2>&1; then
+			${DISK} record set probe && touch ${STATE}/restart-needed
+		else
+			say "rollback not available on this router (starts from NOR)"
+		fi
+	fi
+	decide
+}
+
+cmd_remove()
+{
+	# Undo what decide changed, before the package is removed.
+	[ -f ${STATE}/OPNsense.conf.sample.orig ] && cp ${STATE}/OPNsense.conf.sample.orig ${REPOCONF}.sample
+	rm -f ${STATE}/OPNsense.conf.sample.orig
+	if [ -f ${STATE}/kernel.lock.ours ]; then
+		opnsense-update -kU > /dev/null 2>&1
+		rm -f ${STATE}/kernel.lock.ours
+	fi
+	[ "$(/usr/local/sbin/opnsense-version -a)" = "26.1" ] && clear_offer
+	rm -f ${STATE}/notice
+	return 0
+}
+
+cmd_status()
+{
+	echo "Safety package:  $(cat ${SHARE}/version 2>/dev/null), carries release $(cat ${SHARE}/release 2>/dev/null)"
+	echo "Disk:            $(rootspec)"
+	echo "Rollback:        $(armed_word), record $(${DISK} record get 2>/dev/null || echo unreadable)"
+	echo "Offer:           $(grep '^UPGRADE_RELEASE' ${UPDATECONF} 2>/dev/null || echo none)"
+	[ -f ${STATE}/kernel.lock.ours ] && echo "Held back:       kernel $(cat ${STATE}/kernel.lock.ours)"
+	[ -f ${STATE}/restart-needed ] && echo "Restart needed to finish setup."
+	echo "History:"
+	tail -n 5 ${HISTORY} 2>/dev/null | sed 's/^/  /'
+}
+
+case "${1}" in
+prepare)	cmd_prepare ;;
+boot)		rm -f ${STATE}/restart-needed; cmd_boot ;;
+shutdown)	cmd_shutdown ;;
+precheck)	cmd_precheck ;;
+decide)		decide ;;
+remove)		cmd_remove ;;
+status)		cmd_status ;;
+*)		sed -n '2,11p' ${0}; exit 1 ;;
+esac

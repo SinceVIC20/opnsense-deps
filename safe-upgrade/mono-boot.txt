@@ -1,0 +1,6 @@
+mono_rec=0xa1000000
+mono_rd=mmc dev 0 && mmc read ${mono_rec} 0x3ff8 1
+mono_ok=itest.l *0xa1000000 == 0x4f4e4f4d && itest.l *0xa1000004 == 0x31595254 && setexpr.l mono_x *0xa1000008 ^ *0xa100000c && itest ${mono_x} == 0xffffffff
+mono_wr=mw.l 0xa1000008 ${mono_new} && setexpr mono_inv 0xffffffff - ${mono_new} && mw.l 0xa100000c ${mono_inv} && mmc write ${mono_rec} 0x3ff8 1
+mono_old=setenv fdt_high 0xffffffffffffffff; load mmc 0:1 ${kernel_addr_r} kernel.old && load mmc 0:1 ${fdt_addr_r} dtb/mono-gateway-dk.old && booti ${kernel_addr_r} - ${fdt_addr_r}
+mono_boot=if run mono_rd && run mono_ok; then if itest.l *0xa1000008 == 1; then setenv mono_new 2; run mono_wr; elif itest.l *0xa1000008 == 3; then setenv mono_new 4; run mono_wr; elif itest.l *0xa1000008 == 4; then setenv mono_new 5; run mono_wr; run mono_old; elif itest.l *0xa1000008 == 5; then run mono_old; fi; fi

@@ -1,0 +1,4 @@
+#!/bin/sh
+
+# Move a new kernel to the boot partition, safely.
+/usr/local/sbin/mono-upgrade shutdown

@@ -1,0 +1,4 @@
+#!/bin/sh
+
+# Test or roll back a new kernel before the rest of the boot.
+/usr/local/sbin/mono-upgrade boot

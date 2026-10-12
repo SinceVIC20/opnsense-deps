@@ -1,0 +1,10 @@
+/usr/local/sbin/mono-upgrade
+/usr/local/sbin/mono-safe-disk
+/usr/local/etc/rc.syshook.d/early/04-mono-upgrade
+/usr/local/etc/rc.syshook.d/stop/10-mono-kernel
+/usr/local/etc/rc.syshook.d/upgrade/20-mono-safety
+/usr/local/share/mono-upgrade/mono-boot.txt
+/usr/local/share/mono-upgrade/release
+/usr/local/share/mono-upgrade/rootfs
+/usr/local/share/mono-upgrade/version
+/usr/local/opnsense/mvc/app/library/OPNsense/System/Status/MonoUpgradeStatus.php

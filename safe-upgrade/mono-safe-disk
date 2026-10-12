@@ -1,0 +1,165 @@
+#!/usr/local/bin/python3
+"""Reads and writes the safe-upgrade record and U-Boot's settings on the eMMC.
+
+  mono-safe-disk record get          print idle|probe|probe-seen|pending|tried|fallback|empty|foreign
+  mono-safe-disk record set <state>  write a state (refuses a block holding someone else's data)
+  mono-safe-disk env show            print U-Boot's settings stored on the eMMC
+  mono-safe-disk env install         add the safe-upgrade check to U-Boot's boot command
+"""
+
+import os
+import struct
+import subprocess
+import sys
+import time
+import zlib
+
+DEV = os.environ.get("MONO_SAFE_DEV", "/dev/mmcsd0")
+
+# One block in the empty gap of the firmware area, below Recovery Linux at 0x800000.
+REC_OFFSET = 0x7FF000
+REC_SIZE = 512
+REC_MAGIC = b"MONOTRY1"
+STATES = ["idle", "probe", "probe-seen", "pending", "tried", "fallback"]
+
+# U-Boot settings when the board starts from eMMC (same values as Mono's firmware tool).
+ENV_OFFSET = 0x300000
+ENV_SIZE = 0x2000
+
+BACKUPDIR = "/var/db/mono-upgrade"
+CHECK_PREFIX = "run mono_check; "
+CHECK_CMD = ("load mmc 0:1 ${loadaddr} mono-boot.txt && "
+             "env import -t ${loadaddr} ${filesize} && run mono_boot")
+
+
+def die(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def check_device():
+    if not os.path.exists(DEV):
+        die(f"{DEV} not found")
+
+
+def read_at(offset, size):
+    with open(DEV, "rb") as f:
+        f.seek(offset)
+        return f.read(size)
+
+
+def write_at(offset, data):
+    # GEOM refuses writes to a disk with mounted partitions unless told otherwise.
+    old = subprocess.run(["sysctl", "-n", "kern.geom.debugflags"],
+                         capture_output=True, text=True).stdout.strip() or "0"
+    subprocess.run(["sysctl", "kern.geom.debugflags=16"], capture_output=True)
+    try:
+        with open(DEV, "r+b", buffering=0) as f:
+            f.seek(offset)
+            f.write(data)
+            os.fsync(f.fileno())
+    finally:
+        subprocess.run(["sysctl", f"kern.geom.debugflags={old}"], capture_output=True)
+    if read_at(offset, len(data)) != data:
+        die("read-back after write does not match")
+
+
+def record_get():
+    block = read_at(REC_OFFSET, REC_SIZE)
+    if block == bytes(REC_SIZE):
+        return "empty"
+    if block[:8] != REC_MAGIC:
+        return "foreign"
+    state, check = struct.unpack_from("<II", block, 8)
+    if state ^ check != 0xFFFFFFFF or state >= len(STATES):
+        return "idle"
+    return STATES[state]
+
+
+def record_set(name):
+    if name not in STATES:
+        die(f"unknown state {name}")
+    if record_get() == "foreign":
+        die("record block holds other data, not touching it")
+    state = STATES.index(name)
+    block = REC_MAGIC + struct.pack("<II", state, state ^ 0xFFFFFFFF)
+    write_at(REC_OFFSET, block + bytes(REC_SIZE - len(block)))
+
+
+def env_read():
+    raw = read_at(ENV_OFFSET, ENV_SIZE)
+    crc = struct.unpack_from("<I", raw, 0)[0]
+    if zlib.crc32(raw[4:]) != crc:
+        return raw, None
+    entries = []
+    for item in raw[4:].split(b"\0"):
+        if not item:
+            break
+        name, _, value = item.partition(b"=")
+        entries.append((name.decode(), value.decode()))
+    return raw, entries
+
+
+def env_show():
+    _, entries = env_read()
+    if entries is None:
+        die("no valid U-Boot settings on the eMMC")
+    for name, value in entries:
+        print(f"{name}={value}")
+
+
+def env_install():
+    raw, entries = env_read()
+    if entries is None:
+        die("no valid U-Boot settings on the eMMC")
+    env = dict(entries)
+    if "opnsense" not in env or "run opnsense" not in env.get("bootcmd", ""):
+        die("U-Boot settings on the eMMC don't boot OPNsense")
+    if env["bootcmd"].startswith(CHECK_PREFIX) and env.get("mono_check") == CHECK_CMD:
+        print("already installed")
+        return
+
+    os.makedirs(BACKUPDIR, exist_ok=True)
+    first = os.path.join(BACKUPDIR, "uboot-env-emmc.orig")
+    if not os.path.exists(first):
+        with open(first, "wb") as f:
+            f.write(raw)
+    with open(os.path.join(BACKUPDIR, time.strftime("uboot-env-emmc.%Y%m%d-%H%M%S")), "wb") as f:
+        f.write(raw)
+
+    new = []
+    for name, value in entries:
+        if name == "bootcmd" and not value.startswith(CHECK_PREFIX):
+            value = CHECK_PREFIX + value
+        if name != "mono_check":
+            new.append((name, value))
+    new.append(("mono_check", CHECK_CMD))
+
+    data = b"".join(f"{n}={v}".encode() + b"\0" for n, v in new) + b"\0"
+    if len(data) > ENV_SIZE - 4:
+        die("U-Boot settings would not fit")
+    pad = raw[-1:]  # keep the padding byte the firmware used
+    data += pad * (ENV_SIZE - 4 - len(data))
+    write_at(ENV_OFFSET, struct.pack("<I", zlib.crc32(data)) + data)
+    if env_read()[1] is None:
+        die("U-Boot settings failed verification after writing")
+    print("installed")
+
+
+def main():
+    args = sys.argv[1:]
+    check_device()
+    if args[:2] == ["record", "get"]:
+        print(record_get())
+    elif args[:2] == ["record", "set"] and len(args) == 3:
+        record_set(args[2])
+    elif args[:2] == ["env", "show"]:
+        env_show()
+    elif args[:2] == ["env", "install"]:
+        env_install()
+    else:
+        die(__doc__)
+
+
+if __name__ == "__main__":
+    main()
