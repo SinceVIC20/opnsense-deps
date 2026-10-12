@@ -31,6 +31,15 @@ check)
 	;;
 rollback)
 	[ -f ${M}/kernel.old ] && [ -d /boot/kernel.old ] || { show; echo "Nothing to roll back to."; exit 1; }
+	# A 26.1 kernel can't run the 26.7 base an upgrade left behind (FreeBSD 14 vs 15).
+	OLDMAJOR=$(grep -a -o -m 1 'FreeBSD [0-9][0-9]*\.[0-9]*-' /boot/kernel.old/kernel | head -n 1 | sed 's/FreeBSD \([0-9]*\)\..*/\1/')
+	BASEMAJOR=$(freebsd-version -u | cut -d . -f 1)
+	if [ -n "${OLDMAJOR}" ] && [ "${OLDMAJOR}" != "${BASEMAJOR}" ]; then
+		show
+		echo "The previous kernel is FreeBSD ${OLDMAJOR}, but the installed system is FreeBSD ${BASEMAJOR}."
+		echo "Rolling back would leave the router unable to start. Nothing changed."
+		exit 1
+	fi
 	show
 	echo
 	echo "Restoring the previous kernel..."
