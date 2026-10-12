@@ -287,12 +287,14 @@ safety-package:
 	@rm -rf ${SAFETY_STAGEDIR}
 	mkdir -p ${SAFETY_STAGEDIR}/usr/local/sbin \
 	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/early \
+	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/start \
 	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/stop \
 	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/upgrade \
 	    ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade \
 	    ${SAFETY_STAGEDIR}/usr/local/opnsense/mvc/app/library/OPNsense/System/Status
 	install -m 755 ${SAFETY_DIR}/mono-upgrade ${SAFETY_DIR}/mono-safe-disk ${SAFETY_STAGEDIR}/usr/local/sbin/
 	install -m 755 ${SAFETY_DIR}/hooks/04-mono-upgrade ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/early/
+	install -m 755 ${SAFETY_DIR}/hooks/50-mono-report ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/start/
 	install -m 755 ${SAFETY_DIR}/hooks/10-mono-kernel ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/stop/
 	install -m 755 ${SAFETY_DIR}/hooks/20-mono-safety ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/upgrade/
 	install -m 644 ${SAFETY_DIR}/mono-boot.txt ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade/

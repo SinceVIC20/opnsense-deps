@@ -7,12 +7,15 @@
 #   mono-upgrade precheck   upgrade hook, refuses a release that failed here
 #   mono-upgrade decide     sets or clears the upgrade offer
 #   mono-upgrade remove     undoes decide's changes, run by use-official-updates.sh
+#   mono-upgrade send       sends a failure report to our server
 #   mono-upgrade status     shows the current state
 
 STATE=/var/db/mono-upgrade
 HISTORY=${STATE}/history.log
 SHARE=/usr/local/share/mono-upgrade
 REPORT=/root/upgrade-failed.txt
+UNSENT=${STATE}/report-unsent
+REPORTURL=https://mono-opnsense.sincevic20.com/report
 DISK=/usr/local/sbin/mono-safe-disk
 VERSIONDIR=/usr/local/opnsense/version
 WORKPREFIX=/var/cache/opnsense-update
@@ -91,6 +94,7 @@ report()
 	{
 		echo '```'
 		echo "Mono upgrade failed, rolled back"
+		echo "ID:     $(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
 		echo "Was:    ${1} ($(rootfs), $(armed_word))"
 		echo "Target: ${2}"
 		echo "Stage:  ${3}"
@@ -104,6 +108,7 @@ report()
 	done
 	echo "${FOOT}" >> ${REPORT}
 	echo "When a fix is posted: Check for updates, Update, then Upgrade." >> ${REPORT}
+	cp ${REPORT} ${UNSENT}
 	touch ${STATE}/notice
 	# Shown in System > Firmware > Updates > Log as well.
 	mkdir -p ${WORKPREFIX}
@@ -405,6 +410,22 @@ cmd_remove()
 	return 0
 }
 
+cmd_send()
+{
+	# Anonymous bug report, retried for an hour while the network comes up.
+	TRIES=12
+	while [ -f ${UNSENT} ]; do
+		ID=$(sed -n 's/^ID: *//p' ${UNSENT})
+		if curl -sf -m 30 -G --data-urlencode "id=${ID}" --data-urlencode "r@${UNSENT}" ${REPORTURL} > /dev/null 2>&1; then
+			mv ${UNSENT} ${STATE}/report-sent
+			return 0
+		fi
+		TRIES=$(( TRIES - 1 ))
+		[ ${TRIES} -gt 0 ] || return 1
+		sleep 300
+	done
+}
+
 cmd_status()
 {
 	echo "Safety package:  $(cat ${SHARE}/version 2>/dev/null), carries release $(cat ${SHARE}/release 2>/dev/null)"
@@ -413,6 +434,8 @@ cmd_status()
 	echo "Offer:           $(grep '^UPGRADE_RELEASE' ${UPDATECONF} 2>/dev/null || echo none)"
 	[ -f ${STATE}/kernel.lock.ours ] && echo "Held back:       kernel $(cat ${STATE}/kernel.lock.ours)"
 	[ -f ${STATE}/restart-needed ] && echo "Restart needed to finish setup."
+	[ -f ${UNSENT} ] && echo "Report:          not sent yet"
+	[ -f ${STATE}/report-sent ] && echo "Report:          sent, $(sed -n 's/^ID: */ID /p' ${STATE}/report-sent)"
 	echo "History:"
 	tail -n 5 ${HISTORY} 2>/dev/null | sed 's/^/  /'
 }
@@ -424,6 +447,7 @@ shutdown)	cmd_shutdown ;;
 precheck)	cmd_precheck ;;
 decide)		decide ;;
 remove)		cmd_remove ;;
+send)		cmd_send ;;
 status)		cmd_status ;;
-*)		sed -n '2,11p' ${0}; exit 1 ;;
+*)		sed -n '2,12p' ${0}; exit 1 ;;
 esac

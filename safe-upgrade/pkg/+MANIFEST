@@ -5,7 +5,7 @@ comment: "Safe kernel updates and upgrades for the Mono Gateway"
 desc: <<EOD
 Tests a new kernel once and rolls back by itself when it fails, keeps a
 history of upgrade attempts, holds back a release that failed on this
-router and writes a short failure report.
+router and sends an anonymous bug report when an upgrade fails.
 EOD
 maintainer: "codedesk@v3biolab.com"
 www: "https://mono-opnsense.sincevic20.com"

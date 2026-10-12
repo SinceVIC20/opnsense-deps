@@ -27,7 +27,8 @@ class MonoUpgradeStatus extends AbstractStatus
             $this->internalTimestamp = filemtime($flag);
             $this->internalMessage = gettext(
                 'The last upgrade failed and the router went back to its previous version. ' .
-                'A short report to post on the Mono Discord is in the firmware Log tab and in /root/upgrade-failed.txt. ' .
+                'An anonymous bug report is sent automatically to improve the upgrade code; ' .
+                'it is in the firmware Log tab and in /root/upgrade-failed.txt, with its ID. ' .
                 'When a fix is posted, Check for updates offers it.'
             );
         }

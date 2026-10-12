@@ -1,6 +1,7 @@
 /usr/local/sbin/mono-upgrade
 /usr/local/sbin/mono-safe-disk
 /usr/local/etc/rc.syshook.d/early/04-mono-upgrade
+/usr/local/etc/rc.syshook.d/start/50-mono-report
 /usr/local/etc/rc.syshook.d/stop/10-mono-kernel
 /usr/local/etc/rc.syshook.d/upgrade/20-mono-safety
 /usr/local/share/mono-upgrade/mono-boot.txt
