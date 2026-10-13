@@ -2,6 +2,7 @@ This release comes from the temporary, unofficial Mono Gateway update server at 
 
 - kernel: starts from both UFS and ZFS disks, so routers installed from Mono's official 26.1 and 26.7 images can upgrade
 - kernel: restarts by itself 15 seconds after a crash instead of waiting at the debugger prompt
+- system: FreeBSD 15.1-RELEASE-p3 security fixes (OpenSSL, ppp, iconv, local sockets), which the kernel had but the rest of the system lacked
 - firmware: a new kernel is tested once; if it doesn't start or comes up broken, the router goes back to its previous version by itself
 - firmware: a release that failed on a router isn't offered to it again until a fixed release is posted
 - firmware: after a rollback, the dashboard shows a short report to post on the Mono Discord
