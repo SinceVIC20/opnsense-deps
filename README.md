@@ -60,9 +60,10 @@ These steps build OPNsense 26.7 (FreeBSD 15.1) for the Mono Gateway from the
 `mono-gateway-dev` branches of
 [SinceVIC20/opnsense-src](https://github.com/SinceVIC20/opnsense-src) and
 [SinceVIC20/opnsense-deps](https://github.com/SinceVIC20/opnsense-deps).
-Everything is built from source, step by step. The prefetch steps from Mono's
-original instructions don't apply (Mono's package mirror is gone), and
-`make -C /usr/deps image` is broken: don't use it, it empties `dist/`.
+The kernel, base and board package are built from source, step by step. The
+packages set can be downloaded from our update server instead of built, which
+saves several hours. `make -C /usr/deps image` is broken: don't use it, it
+empties `dist/`.
 
 ### 1. Build server
 
@@ -172,7 +173,20 @@ The cmm build has no header dependencies, so always remove its objects first.
 Always build through this top-level Makefile, not a component's own Makefile.
 The result is `/usr/deps/dist/mono-gateway-<version>.pkg`.
 
-### 6. Image
+### 6. Packages set
+
+Download the packages set from our update server instead of building it:
+
+```
+make -C /usr/tools prefetch-packages MIRRORS=https://mono-opnsense.sincevic20.com VERSION=26.7.2_2 SETTINGS=26.7 TOOLSDIR=/usr/tools
+```
+
+Use the newest `packages-*` version listed at
+https://mono-opnsense.sincevic20.com/FreeBSD:15:aarch64/26.7/sets/. Skip this
+step to build the packages set yourself from ports, core and plugins (several
+hours, done by the first `arm-5G` below).
+
+### 7. Image
 
 ```
 make -C /usr/tools arm-5G DEVICE=GATEWAY SETTINGS=26.7 TOOLSDIR=/usr/tools SRCBRANCH=mono-gateway-dev PORTSBRANCH=2026Q3
@@ -182,9 +196,9 @@ make -C /usr/tools arm-5G DEVICE=GATEWAY SETTINGS=26.7 TOOLSDIR=/usr/tools SRCBR
 make -C /usr/deps compress-image OPS_SETTINGS=26.7
 ```
 
-The first `arm-5G` also builds the packages set from ports, core and plugins,
-which takes several hours; later builds reuse it. Afterwards, check the
-packages set has `openssh-portable` 10.4 or newer.
+If there is no packages set yet, the first `arm-5G` builds it, and later
+builds reuse it. Either way, check the packages set has `openssh-portable` 10.4
+or newer.
 
 `compress-image` zeroes the image's free space and writes
 `OPNsense-*-arm-aarch64-GATEWAY.img.bz2` with `.sha256` and `.md5` files.
@@ -193,7 +207,7 @@ Images use a UFS root (label `OPNsense_ARM`). Flash the `.img.bz2` with
 mono-imager only handles `.img.bz2`, and with any other format (such as
 `.img.gz`) it fails after it has already erased the eMMC.
 
-### 7. Update server releases
+### 8. Update server releases
 
 To publish kernel and system updates to your own update server, build the
 safe-upgrade package with `make -C /usr/deps safety-package SAFETY_RELEASE=<release>`
