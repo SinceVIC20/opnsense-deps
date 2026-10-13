@@ -1,0 +1,92 @@
+diff --git a/config/26.7/make.conf b/config/26.7/make.conf
+index 6d3f1f1..fe9b52f 100644
+--- a/config/26.7/make.conf
++++ b/config/26.7/make.conf
+@@ -25,7 +25,7 @@ PRODUCT_GSSAPI?=	GSSAPI_MIT
+ 
+ OPTIONS_SET=		MONPLUGINS
+ OPTIONS_UNSET=		DBUS DOCS EXAMPLES GCC GSSAPI_BASE NAGPLUGINS \
+-			NLS OPENGL WAYLAND X11
++			MILTER NLS OPENGL WAYLAND X11
+ DEFAULT_VERSIONS=	apache=${PRODUCT_APACHE:C/^./&./}
+ DEFAULT_VERSIONS+=	lua=${PRODUCT_LUA}
+ DEFAULT_VERSIONS+=	perl5=${PRODUCT_PERL}
+@@ -60,8 +60,8 @@ graphics_graphviz_UNSET=	XPM DIGCOLA IPSEPCOLA ICONV PANGOCAIRO
+ mail_postfix_SET=		LDAP SASL SASLKMIT
+ mail_postfix_UNSET=		BLOCKLISTD
+ mail_rspamd_SET=		HYPERSCAN
+-math_py-numpy_SET=		NOBLAS
+-math_py-numpy_UNSET=		OPENBLAS SUITESPARSE
++math_py-numpy_SET=		OPENBLAS
++math_py-numpy_UNSET=		SUITESPARSE
+ net-mgmt_flowd_UNSET=		PERL
+ net-mgmt_net-snmp_SET=		AES
+ net-mgmt_zabbix6-proxy_SET=	SQLITE
+diff --git a/config/26.7/plugins.conf b/config/26.7/plugins.conf
+index c50b557..326801e 100644
+--- a/config/26.7/plugins.conf
++++ b/config/26.7/plugins.conf
+@@ -24,12 +24,12 @@ net-mgmt/net-snmp
+ net-mgmt/netdata
+ net-mgmt/nrpe
+ net-mgmt/telegraf
+-net-mgmt/zabbix-agent@zabbix6
++#net-mgmt/zabbix-agent@zabbix6
+ net-mgmt/zabbix-agent@zabbix7
+-net-mgmt/zabbix-agent@zabbix74
+-net-mgmt/zabbix-proxy@zabbix6
++#net-mgmt/zabbix-agent@zabbix74
++#net-mgmt/zabbix-proxy@zabbix6
+ net-mgmt/zabbix-proxy@zabbix7
+-net-mgmt/zabbix-proxy@zabbix74
++#net-mgmt/zabbix-proxy@zabbix74
+ net/chrony
+ net/cloudflared
+ net/firewall-legacy
+@@ -90,7 +90,7 @@ sysutils/munin-node
+ sysutils/nextcloud-backup
+ sysutils/node_exporter
+ sysutils/nut
+-sysutils/puppet-agent
++#sysutils/puppet-agent
+ sysutils/sftp-backup
+ sysutils/smart
+ sysutils/virtualbox				aarch64
+diff --git a/config/26.7/ports.conf b/config/26.7/ports.conf
+index 7e2312d..802f72d 100644
+--- a/config/26.7/ports.conf
++++ b/config/26.7/ports.conf
+@@ -100,12 +100,12 @@ net-mgmt/py-opn-cli
+ net-mgmt/telegraf
+ net-mgmt/xymon-client
+ net-mgmt/yaf
+-net-mgmt/zabbix6-agent
+-net-mgmt/zabbix6-proxy
++#net-mgmt/zabbix6-agent
++#net-mgmt/zabbix6-proxy
+ net-mgmt/zabbix7-agent
+ net-mgmt/zabbix7-proxy
+-net-mgmt/zabbix74-agent
+-net-mgmt/zabbix74-proxy
++#net-mgmt/zabbix74-agent
++#net-mgmt/zabbix74-proxy
+ net/addrwatch
+ net/bird2
+ net/chrony
+@@ -239,7 +239,7 @@ sysutils/node_exporter
+ sysutils/nut
+ sysutils/pftop
+ sysutils/pstree
+-sysutils/puppet8
++#sysutils/puppet8
+ sysutils/screen
+ sysutils/smartmontools
+ sysutils/superiotool				aarch64
+@@ -252,6 +252,7 @@ sysutils/xe-guest-utilities			aarch64
+ textproc/colordiff
+ textproc/jq
+ textproc/minify
++textproc/rubygem-rexml
+ textproc/php${PRODUCT_PHP}-ctype
+ textproc/php${PRODUCT_PHP}-dom
+ textproc/php${PRODUCT_PHP}-simplexml

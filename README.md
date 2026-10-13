@@ -33,7 +33,7 @@ opnsense-deps/
 │   ├── dpa_app/          # DPAA application (PCD setup)
 │   ├── cmm/              # Connection Manager daemon
 │   └── cmmctl/           # CMM control utility
-├── config/               # FMC/CDX XML configuration files
+├── config/               # FMC/CDX XML configuration files, build-fixes/ patches
 ├── rc.d/                 # rc.d service scripts and syshook scripts
 ├── pkg/                  # FreeBSD package metadata
 ├── _vendor/              # NXP vendor repos (cloned at build time, gitignored)
@@ -109,9 +109,26 @@ git clone -b stable/26.7 https://github.com/opnsense/plugins /usr/plugins
 git clone -b 2026Q3 https://git.FreeBSD.org/ports.git /usr/ports
 ```
 
-The ports tree also needs the `opnsense/` category from
-[opnsense/ports](https://github.com/opnsense/ports): clone it elsewhere and
-copy its `opnsense/*` into `/usr/ports/opnsense/`. Then add the board file:
+Set tools, core, plugins and ports to the commits these builds are tested
+with. `reset` keeps each repo on its branch, which the tools check for:
+
+```
+git -C /usr/tools reset -q --hard d07b7e2b1ce5
+```
+
+```
+git -C /usr/core reset -q --hard bf16bfcdaf43
+```
+
+```
+git -C /usr/plugins reset -q --hard 335042e98010
+```
+
+```
+git -C /usr/ports reset -q --hard 957070544aab
+```
+
+Then add the board file:
 
 ```
 cp /usr/deps/config/GATEWAY.conf /usr/tools/device/
@@ -119,21 +136,33 @@ cp /usr/deps/config/GATEWAY.conf /usr/tools/device/
 
 ### 3. Fixes needed on top of tools and ports
 
-The package build needs a few local changes, because FreeBSD's quarterly
-ports have moved on from what OPNsense 26.7's settings expect:
+FreeBSD's quarterly ports have moved on from what OPNsense 26.7's settings
+expect, so the package build needs a few changes. Apply them with:
 
-- `/usr/tools/config/26.7/make.conf`: add `MILTER` to `OPTIONS_UNSET`, and
-  build `math/py-numpy` with `OPENBLAS` (its `NOBLAS` option no longer exists).
-- `/usr/tools/config/26.7/ports.conf` and `plugins.conf`: comment out the
-  zabbix 6 and 7.4 ports and puppet, which no longer build; add
+```
+git -C /usr/tools apply /usr/deps/config/build-fixes/tools-26.7.patch
+```
+
+```
+git -C /usr/ports apply --whitespace=nowarn /usr/deps/config/build-fixes/ports-2026Q3.patch
+```
+
+What they change:
+
+- `/usr/tools/config/26.7/make.conf`: adds `MILTER` to `OPTIONS_UNSET`, and
+  builds `math/py-numpy` with `OPENBLAS` (its `NOBLAS` option no longer exists).
+- `/usr/tools/config/26.7/ports.conf` and `plugins.conf`: comments out the
+  zabbix 6 and 7.4 ports and puppet, which no longer build; adds
   `textproc/rubygem-rexml` to `ports.conf`.
-- `security/nss`: `files/patch-coreconf_FreeBSD.mk` needs a fix for a
-  duplicate-symbol link error on aarch64 (`platform_ghash_support` and the
-  `gcm_Hash*_hw` functions defined twice).
-- `security/openssh-portable`: replace the port with the one from
-  opnsense/ports tag `26.7.4` (OpenSSH 10.5p1). OPNsense core 26.7.3 and later
-  always write an ML-DSA key setting into `sshd_config`, and the 2026Q3 port
-  (10.3p1) refuses to start with it.
+- `security/nss`: fixes a duplicate-symbol link error on aarch64
+  (`platform_ghash_support` and the `gcm_Hash*_hw` functions defined twice).
+- `security/openssh-portable`: replaced with the port from opnsense/ports tag
+  `26.7.4` (OpenSSH 10.5p1). OPNsense core 26.7.3 and later always write an
+  ML-DSA key setting into `sshd_config`, and the 2026Q3 port (10.3p1) refuses
+  to start with it.
+- `opnsense/`: adds the OPNsense ports category from
+  [opnsense/ports](https://github.com/opnsense/ports), so it doesn't need to be
+  cloned separately.
 
 ### 4. Kernel and base sets
 
