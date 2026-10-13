@@ -56,199 +56,151 @@ on performance or functionality.
 
 ## Build instructions
 
-All commands run on the build server (FreeBSD, matching the OPNsense base version).
+These steps build OPNsense 26.7 (FreeBSD 15.1) for the Mono Gateway from the
+`mono-gateway-dev` branches of
+[SinceVIC20/opnsense-src](https://github.com/SinceVIC20/opnsense-src) and
+[SinceVIC20/opnsense-deps](https://github.com/SinceVIC20/opnsense-deps).
+Everything is built from source, step by step. The prefetch steps from Mono's
+original instructions don't apply (Mono's package mirror is gone), and
+`make -C /usr/deps image` is broken: don't use it, it empties `dist/`.
 
-The build server should run the same FreeBSD version that OPNsense is based on
-(e.g., FreeBSD 14.3 for OPNsense 26.1). Mismatched versions can cause ABI
-issues in kernel modules. Native aarch64 builds are preferred; cross-compilation
-from amd64 also works (see below).
+### 1. Build server
 
-### 1. Prerequisites
-
-**Native aarch64 build server:**
-
-```
-sudo pkg install -y git python3
-```
-
-**Cross-compilation from amd64:**
+FreeBSD 15.1 on aarch64 (a VM on Apple silicon works well), about 6 cores and
+a 120 GB disk. Install these once, before the first build:
 
 ```
-sudo pkg install -y git aarch64-binutils qemu-user-static python3
+pkg install -y git python3 aarch64-binutils libxml2
 ```
 
-### 2. Directory layout
-
-The build system uses standard OPNsense paths under `/usr/`. Repositories map
-to these paths either by cloning directly or via NFS + nullfs mounts:
-
-| Path | Repository | OPNsense variable |
-|------|-----------|-------------------|
-| `/usr/src` | [we-are-mono/opnsense-src](https://github.com/we-are-mono/opnsense-src) | `SRCDIR` |
-| `/usr/tools` | [opnsense/tools](https://github.com/opnsense/tools) | `TOOLSDIR` |
-| `/usr/deps` | [we-are-mono/opnsense-deps](https://github.com/we-are-mono/opnsense-deps) | (this repo) |
-| `/usr/core` | [opnsense/core](https://github.com/opnsense/core) | `COREDIR` |
-
-All paths are overridable: `sudo make -C /usr/deps image SRCDIR=/my/src TOOLSDIR=/my/tools`
-
-**Option A — Local development** (clone directly):
+After that, don't install or upgrade packages on the build server. pkg
+updates itself to a newer version than the ports tree expects, and the
+OPNsense tools then stop with "Installed pkg version ... does not match
+required version". To fix that:
 
 ```
-sudo git clone https://github.com/we-are-mono/opnsense-src.git /usr/src
-sudo git clone https://github.com/opnsense/tools.git /usr/tools
-sudo git clone https://github.com/we-are-mono/opnsense-deps /usr/deps
-sudo cp /usr/deps/config/GATEWAY.conf /usr/tools/device/
+make -C /usr/ports/ports-mgmt/pkg -DBATCH clean all reinstall
 ```
 
-**Option B — Remote source via NFS** (source tree on another machine):
+### 2. Repositories
 
 ```
-# Enable the NFS client
-sudo sysrc nfs_client_enable="YES"
-sudo service nfsclient start
-
-# Mount the remote NFS export
-# Replace [server] and [nfs-export] with your NFS server and export path.
-# The exported directory should contain opnsense-src, opnsense-build,
-# opnsense-deps, and opnsense-core as subdirectories.
-sudo mkdir -p /mnt/opnsense /usr/tools /usr/core /usr/deps
-echo '[server]:[nfs-export] /mnt/opnsense nfs rw,late 0 0' | sudo tee -a /etc/fstab
-echo '/mnt/opnsense/opnsense-src /usr/src nullfs rw,late 0 0' | sudo tee -a /etc/fstab
-echo '/mnt/opnsense/opnsense-build /usr/tools nullfs rw,late 0 0' | sudo tee -a /etc/fstab
-echo '/mnt/opnsense/opnsense-deps /usr/deps nullfs rw,late 0 0' | sudo tee -a /etc/fstab
-echo '/mnt/opnsense/opnsense-core /usr/core nullfs rw,late 0 0' | sudo tee -a /etc/fstab
-sudo mount -a
-
-sudo cp /usr/deps/config/GATEWAY.conf /usr/tools/device/
+git clone -b mono-gateway-dev https://github.com/SinceVIC20/opnsense-src /usr/src
 ```
 
-Using nullfs (rather than symlinks) ensures `pwd` reports `/usr/...` in build
-output, keeping kernel version strings and module paths clean.
-
-### 3. Prefetch base and packages
-
-Official OPNsense mirrors only publish amd64 sets. For aarch64, use opnsense.mono.si.
-Check https://opnsense.mono.si/FreeBSD:14:aarch64/26.1/sets/ for available versions.
-
 ```
-export VERSION=26.1.1   # use latest available on the mirror
-
-sudo make -C /usr/tools prefetch-base DEVICE=GATEWAY SETTINGS=26.1 TOOLSDIR=/usr/tools MIRRORS=https://opnsense.mono.si VERSION=$VERSION
-
-# The build system expects a -GATEWAY suffix on the base set
-cd /usr/local/opnsense/build/26.1/aarch64/sets
-sudo mv base-${VERSION}-aarch64.txz base-${VERSION}-aarch64-GATEWAY.txz
-
-sudo make -C /usr/tools prefetch-packages DEVICE=GATEWAY SETTINGS=26.1 TOOLSDIR=/usr/tools MIRRORS=https://opnsense.mono.si VERSION=$VERSION
+git clone -b mono-gateway-dev https://github.com/SinceVIC20/opnsense-deps /usr/deps
 ```
 
-This skips `make base`, `make ports`, `make core`, and `make plugins` (no cross-compilation needed).
-
-The build system's `check_packages()` validates the host `pkg` version against the
-ports tree before checking whether the prefetched set already has completion markers.
-Create a minimal stub so the version check passes:
-
 ```
-sudo mkdir -p /usr/ports/ports-mgmt/pkg
-echo "PORTVERSION=$(pkg -v)" | sudo tee /usr/ports/ports-mgmt/pkg/Makefile
+git clone https://github.com/opnsense/tools /usr/tools
 ```
 
-**Important:** Do NOT run `make base` or `make xtools` locally. If an `xtools-*-aarch64.txz`
-set exists in the sets directory, remove it before building the image. The xtools overlay/restore
-mechanism (`setup_xtools`/`setup_xbase`) is broken for cross-builds and will leave amd64 binaries
-in the image.
-
-### 4–7. Build everything (single command)
-
-After completing steps 1–3, a single command builds the kernel, modules, userspace,
-package, and assembles the final eMMC image:
-
 ```
-sudo make -C /usr/deps image
+git clone -b stable/26.7 https://github.com/opnsense/core /usr/core
 ```
 
-The individual steps below are documented for development workflows where you
-only need to rebuild part of the stack.
-
-### 4. Build kernel
-
 ```
-sudo make -C /usr/tools kernel DEVICE=GATEWAY SETTINGS=26.1 TOOLSDIR=/usr/tools
+git clone -b stable/26.7 https://github.com/opnsense/plugins /usr/plugins
 ```
 
-On a native aarch64 build server, no cross-compilation flags are needed. On an
-amd64 host, the kernel is cross-compiled natively (no QEMU). Package
-installation during `make arm` uses QEMU user-static emulation.
-
-**Rebuilding:** The build system caches the kernel set in the sets directory and
-skips the build if one already exists. When rebuilding after source changes,
-remove the stale set and obj tree first:
-
 ```
-sudo rm -f /usr/local/opnsense/build/26.1/aarch64/sets/kernel-*-GATEWAY.txz
-sudo rm -rf /usr/obj/usr/src/arm64.aarch64/sys/GATEWAY
+git clone -b 2026Q3 https://git.FreeBSD.org/ports.git /usr/ports
 ```
 
-### 5. Install libxml2
-
-Required by opnsense-deps (fmc links against libxml2).
-
-**Native aarch64 build server:**
+The ports tree also needs the `opnsense/` category from
+[opnsense/ports](https://github.com/opnsense/ports): clone it elsewhere and
+copy its `opnsense/*` into `/usr/ports/opnsense/`. Then add the board file:
 
 ```
-sudo pkg install -y libxml2
+cp /usr/deps/config/GATEWAY.conf /usr/tools/device/
 ```
 
-**Cross-compilation from amd64:**
+### 3. Fixes needed on top of tools and ports
 
-Fetch the aarch64 package from the FreeBSD pkg mirror and extract its headers
-and libraries into the sysroot created by `make kernel`. `make image` does this
-automatically; the manual steps below are only needed when building without it.
+The package build needs a few local changes, because FreeBSD's quarterly
+ports have moved on from what OPNsense 26.7's settings expect:
 
-```
-fetch -o /tmp/libxml2.pkg 'https://pkg.FreeBSD.org/FreeBSD:14:aarch64/latest/All/libxml2-2.15.2.pkg'
-mkdir -p /tmp/libxml2-extract && cd /tmp/libxml2-extract && tar xf /tmp/libxml2.pkg
+- `/usr/tools/config/26.7/make.conf`: add `MILTER` to `OPTIONS_UNSET`, and
+  build `math/py-numpy` with `OPENBLAS` (its `NOBLAS` option no longer exists).
+- `/usr/tools/config/26.7/ports.conf` and `plugins.conf`: comment out the
+  zabbix 6 and 7.4 ports and puppet, which no longer build; add
+  `textproc/rubygem-rexml` to `ports.conf`.
+- `security/nss`: `files/patch-coreconf_FreeBSD.mk` needs a fix for a
+  duplicate-symbol link error on aarch64 (`platform_ghash_support` and the
+  `gcm_Hash*_hw` functions defined twice).
+- `security/openssh-portable`: replace the port with the one from
+  opnsense/ports tag `26.7.4` (OpenSSH 10.5p1). OPNsense core 26.7.3 and later
+  always write an ML-DSA key setting into `sshd_config`, and the 2026Q3 port
+  (10.3p1) refuses to start with it.
 
-SYSROOT=/usr/obj/usr/src/arm64.aarch64/tmp
-sudo mkdir -p ${SYSROOT}/usr/local/include ${SYSROOT}/usr/local/lib
-sudo cp -r /tmp/libxml2-extract/usr/local/include/libxml2 ${SYSROOT}/usr/local/include/
-sudo cp -a /tmp/libxml2-extract/usr/local/lib/libxml2* ${SYSROOT}/usr/local/lib/
-```
+### 4. Kernel and base sets
 
-If the package version has changed, override it in the Makefile:
-
-```
-make -C /usr/deps image LIBXML2_PKG=libxml2-2.16.0.pkg
-```
-
-### 6. Build custom modules and tools (everything in this repo)
-
-```
-sudo make -C /usr/deps -j24 all
-```
-
-The first build automatically clones NXP vendor repositories (mwifiex driver
-source and imx-firmware) into `_vendor/` at pinned commits. Subsequent builds
-reuse the cached clones. To force a fresh clone, remove `_vendor/` and rebuild.
-
-### 7. Assemble eMMC image
+The tools reuse any kernel or base set already in
+`/usr/local/opnsense/build/26.7/aarch64/sets/` without checking it matches the
+source. Move the old set out of that folder before rebuilding it.
 
 ```
-sudo make -C /usr/tools arm-5G DEVICE=GATEWAY SETTINGS=26.1 TOOLSDIR=/usr/tools
+make -C /usr/tools kernel DEVICE=GATEWAY SETTINGS=26.7 TOOLSDIR=/usr/tools SRCBRANCH=mono-gateway-dev
 ```
 
-Output: `/usr/local/opnsense/build/26.1/aarch64/images/OPNsense-*-arm-aarch64-GATEWAY.img`
-
-### 8. Compress the image
-
 ```
-sudo make -C /usr/deps compress-image OPS_SETTINGS=26.1
+make -C /usr/tools base DEVICE=GATEWAY SETTINGS=26.7 TOOLSDIR=/usr/tools SRCBRANCH=mono-gateway-dev
 ```
 
-This zeroes the image's free space (so it compresses well) and writes
-`OPNsense-*-arm-aarch64-GATEWAY.img.bz2` next to the `.img`, with `.sha256` and
-`.md5` files for both. bzip2 is the format OPNsense's own tools and mono-imager
-expect. The `.img` itself is kept.
+The set names end in the source commit they were built from.
+
+### 5. Board package (this repo)
+
+```
+rm -rf /usr/deps/_build/cmm
+```
+
+```
+make -C /usr/deps clean
+```
+
+```
+make -C /usr/deps -j5 all
+```
+
+```
+make -C /usr/deps package
+```
+
+The cmm build has no header dependencies, so always remove its objects first.
+Always build through this top-level Makefile, not a component's own Makefile.
+The result is `/usr/deps/dist/mono-gateway-<version>.pkg`.
+
+### 6. Image
+
+```
+make -C /usr/tools arm-5G DEVICE=GATEWAY SETTINGS=26.7 TOOLSDIR=/usr/tools SRCBRANCH=mono-gateway-dev PORTSBRANCH=2026Q3
+```
+
+```
+make -C /usr/deps compress-image OPS_SETTINGS=26.7
+```
+
+The first `arm-5G` also builds the packages set from ports, core and plugins,
+which takes several hours; later builds reuse it. Afterwards, check the
+packages set has `openssh-portable` 10.4 or newer.
+
+`compress-image` zeroes the image's free space and writes
+`OPNsense-*-arm-aarch64-GATEWAY.img.bz2` with `.sha256` and `.md5` files.
+Images use a UFS root (label `OPNsense_ARM`). Flash the `.img.bz2` with
+[mono-imager](https://github.com/HAHermsen/mono-imager). It must be bzip2:
+mono-imager only handles `.img.bz2`, and with any other format (such as
+`.img.gz`) it fails after it has already erased the eMMC.
+
+### 7. Update server releases
+
+To publish kernel and system updates to your own update server, build the
+safe-upgrade package with `make -C /usr/deps safety-package SAFETY_RELEASE=<release>`
+and use the scripts in `scripts/` (`bump-opnsense-update.sh`,
+`publish-update-server.sh`, `build-upgrade-set.sh`, `publish-changelog.sh`).
+They sign with your own key, and routers then need that key's fingerprint
+(see `scripts/update-server/use-temp-updates.sh`).
 
 ## Development workflow
 
