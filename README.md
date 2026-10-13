@@ -61,9 +61,9 @@ These steps build OPNsense 26.7 (FreeBSD 15.1) for the Mono Gateway from the
 [SinceVIC20/opnsense-src](https://github.com/SinceVIC20/opnsense-src) and
 [SinceVIC20/opnsense-deps](https://github.com/SinceVIC20/opnsense-deps).
 The kernel, base and board package are built from source, step by step. The
-packages set can be downloaded from our update server instead of built, which
-saves several hours. `make -C /usr/deps image` is broken: don't use it, it
-empties `dist/`.
+packages set can be downloaded from the temporary update server at
+mono-opnsense.sincevic20.com instead of built, which saves several hours.
+`make -C /usr/deps image` is broken: don't use it, it empties `dist/`.
 
 ### 1. Build server
 
@@ -175,7 +175,7 @@ The result is `/usr/deps/dist/mono-gateway-<version>.pkg`.
 
 ### 6. Packages set
 
-Download the packages set from our update server instead of building it:
+Download the packages set from the temporary update server instead of building it:
 
 ```
 make -C /usr/tools prefetch-packages MIRRORS=https://mono-opnsense.sincevic20.com VERSION=26.7.2_2 SETTINGS=26.7 TOOLSDIR=/usr/tools
@@ -209,142 +209,50 @@ mono-imager only handles `.img.bz2`, and with any other format (such as
 
 ### 8. Update server releases
 
-To publish kernel and system updates to your own update server, build the
+To publish kernel and system updates to a separate update server, build the
 safe-upgrade package with `make -C /usr/deps safety-package SAFETY_RELEASE=<release>`
 and use the scripts in `scripts/` (`bump-opnsense-update.sh`,
 `publish-update-server.sh`, `build-upgrade-set.sh`, `publish-changelog.sh`).
-They sign with your own key, and routers then need that key's fingerprint
+They sign with that server's own key, and routers then need its fingerprint
 (see `scripts/update-server/use-temp-updates.sh`).
+
+## Flashing and first boot
+
+Follow the [install guide](https://mono-opnsense.sincevic20.com/images/install-guide.html).
+It flashes the `.img.bz2` with mono-imager, which keeps the eMMC firmware in
+place, and sets U-Boot to boot OPNsense. Don't `dd` an image onto the start of
+`/dev/mmcblk0`: that overwrites the firmware stored in its first 32 MB.
 
 ## Development workflow
 
 ### Kernel source
 
-The kernel source (`opnsense-src`) is a fork of OPNsense/FreeBSD at
-[we-are-mono/opnsense-src](https://github.com/we-are-mono/opnsense-src),
-branched from `stable/26.1`. All Mono Gateway changes live as commits on this
-branch.
+Kernel changes are commits on the `mono-gateway-dev` branch of
+[SinceVIC20/opnsense-src](https://github.com/SinceVIC20/opnsense-src), on top of
+Mono's 26.7 port in the `stable/26.7` branch. To see them:
 
-**Making a change:**
-
-```bash
-cd /usr/src
-
-# See Mono Gateway commits on top of upstream
-git log --oneline origin/stable/26.1..HEAD
-
-# 1. Edit the file
-vim sys/contrib/device-tree/src/arm64/freescale/mono-gateway-dk.dts
-
-# 2. Stage and commit
-git add sys/contrib/device-tree/src/arm64/freescale/mono-gateway-dk.dts
-git commit -m "dts: add PCIe WiFi reset GPIO"
-
-# 3. Push
-git push
+```
+git -C /usr/src log --oneline origin/stable/26.7..HEAD
 ```
 
-To rebase on a newer upstream OPNsense release:
-
-```bash
-git remote add upstream https://github.com/opnsense/src.git
-git fetch upstream
-git rebase upstream/stable/26.7   # or whatever the new branch is
-git push --force-with-lease
-```
+After a change, rebuild the kernel set (step 4, move the old set out first) and
+the board package (step 5), since the modules build against this source.
 
 ### Out-of-tree modules
 
-Drivers in `drivers/` build against kernel headers without modifying the kernel
-source. To iterate on one:
-
-```bash
-# Rebuild just caam
-sudo make -C /usr/deps build-caam
-
-# Or rebuild all modules
-sudo make -C /usr/deps -j24 modules
-```
-
-Output `.ko` files land in the driver directory and are collected into `dist/`
-by `make all`.
-
-## Local / Test Deployment
-
-Flashing writes the image directly to the gateway's eMMC. The gateway must be
-booted into Recovery Linux (initramfs) so the eMMC is not in use.
-
-**Warning:** This overwrites the entire eMMC, including any existing OPNsense
-installation and its configuration.
-
-### 1. Boot into Recovery Linux
-
-Power on the gateway and let U-Boot autoboot into Recovery Linux (or interrupt
-U-Boot and run `run recovery`).
-
-### 2. Configure networking on the gateway
-
-Recovery Linux has no DHCP client. Assign a static IP on the uplink port
-(adjust addresses to match your network):
+Drivers in `drivers/` and `fastpath/` build against the kernel source in
+`/usr/src`. To rebuild one, or all of them:
 
 ```
-ip link set eth3 up
-ip addr add 10.0.0.69/24 dev eth3
-ip route add default via 10.0.0.1 dev eth3
+make -C /usr/deps build-cdx
 ```
 
-### 3. Serve the image from the build server
-
-On the build server, start an HTTP server in the images directory:
-
 ```
-cd /usr/local/opnsense/build/26.1/aarch64/images
-python3 -m http.server 8000
+make -C /usr/deps -j5 modules
 ```
 
-### 4. Flash the eMMC
-
-On the gateway, stream the compressed image directly to the eMMC. This
-downloads, decompresses, and writes in a single pipeline — no local storage
-needed (works even on devices with limited RAM):
-
-```
-curl http://[build-server]:8000/OPNsense-*-GATEWAY.img.bz2 | bzip2 -dc | dd of=/dev/mmcblk0 bs=1M
-```
-
-For an uncompressed image (slower transfer, no bzip2 needed):
-
-```
-curl http://[build-server]:8000/OPNsense-*-GATEWAY.img | dd of=/dev/mmcblk0 bs=1M
-```
-
-### 5. Reboot
-
-```
-reboot
-```
-
-U-Boot will load `kernel.img` and the device tree from the FAT partition and
-boot into OPNsense.
-
-## Booting into OPNsense
-
-The board's default boot command loads OpenWRT. To boot OPNsense instead,
-interrupt U-Boot's autoboot (press any key during the countdown) and configure
-a persistent `opnsense` boot environment:
-
-```
-=> setenv opnsense "load mmc 0:1 ${kernel_addr_r} kernel.img; load mmc 0:1 ${fdt_addr_r} dtb/mono-gateway-dk.dtb; booti 0x82000000 - 0x88000000"
-=> setenv bootcmd_bak ${bootcmd}
-=> setenv bootcmd "run opnsense || run recovery"
-=> saveenv
-=> reset
-```
-
-This saves the original boot command as `bootcmd_bak`, then sets `bootcmd` to
-try OPNsense first and fall back to Recovery Linux if the kernel image is missing.
-After `saveenv` and `reset`, the board will automatically boot into OPNsense on
-every subsequent power-on.
+To test them on a router, copy the `.ko` over by hand. To ship them, build the
+board package as in step 5 (`make all` is what copies them into `dist/`).
 
 > ## Disclaimer
 > Many of the files in this repository, and in the [kernel fork](https://github.com/we-are-mono/opnsense-src), were ported from Linux sources provided by NXP (originally targeting Linux kernel 5.4). Due to the sheer scope of the porting effort, Claude Opus 4.6 was used to assist with the adaptation of this code to FreeBSD. As such, this project should be considered **highly experimental** and is **not fit for production use** until thorough reviews and testing have been performed by the wider community.
