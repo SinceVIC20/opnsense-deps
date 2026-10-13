@@ -1,5 +1,5 @@
 #!/bin/sh
 
-# Send a failed upgrade's bug report in the background, once the network is up.
-[ -f /var/db/mono-upgrade/report-unsent ] && daemon -f -p /var/run/mono-report.pid /usr/local/sbin/mono-upgrade send
+# Send waiting upgrade reports in the background, once the network is up.
+ls /var/db/mono-upgrade/outbox/*.txt > /dev/null 2>&1 && daemon -f -p /var/run/mono-report.pid /usr/local/sbin/mono-upgrade send
 exit 0

@@ -7,14 +7,14 @@
 #   mono-upgrade precheck   upgrade hook, refuses a release that failed here
 #   mono-upgrade decide     sets or clears the upgrade offer
 #   mono-upgrade remove     undoes decide's changes, run by use-official-updates.sh
-#   mono-upgrade send       sends a failure report to our server
+#   mono-upgrade send       sends waiting upgrade reports to our server
 #   mono-upgrade status     shows the current state
 
 STATE=/var/db/mono-upgrade
 HISTORY=${STATE}/history.log
 SHARE=/usr/local/share/mono-upgrade
 REPORT=/root/upgrade-failed.txt
-UNSENT=${STATE}/report-unsent
+OUTBOX=${STATE}/outbox
 REPORTURL=https://mono-opnsense.sincevic20.com/report
 DISK=/usr/local/sbin/mono-safe-disk
 VERSIONDIR=/usr/local/opnsense/version
@@ -80,6 +80,34 @@ sanitize()
 	    -e 's/[0-9a-fA-F]{1,4}(:[0-9a-fA-F]{0,4}){3,7}/x:x::x/g'
 }
 
+new_id()
+{
+	od -An -N4 -tx1 /dev/urandom | tr -d ' \n'
+}
+
+queue_report()
+{
+	# queue_report <file>: sent in the background by the start hook
+	mkdir -p ${OUTBOX}
+	cp "${1}" ${OUTBOX}/$(sed -n 's/^ID: *//p' "${1}").txt
+}
+
+report_ok()
+{
+	# report_ok <from> <to>
+	TMP=$(mktemp)
+	{
+		echo "Mono upgrade succeeded"
+		echo "ID:     $(new_id)"
+		echo "Was:    ${1} ($(rootfs), $(armed_word))"
+		echo "Now:    ${2}"
+		echo "Time:   $(date '+%Y-%m-%d %H:%M')"
+		echo "Safety: $(cat ${SHARE}/version 2>/dev/null)"
+	} | sanitize > ${TMP}
+	queue_report ${TMP}
+	rm -f ${TMP}
+}
+
 cancel_upgrade()
 {
 	[ -f ${WORKPREFIX}/.upgrade.log ] && cp ${WORKPREFIX}/.upgrade.log ${STATE}/last-upgrade.log
@@ -94,7 +122,7 @@ report()
 	{
 		echo '```'
 		echo "Mono upgrade failed, rolled back"
-		echo "ID:     $(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+		echo "ID:     $(new_id)"
 		echo "Was:    ${1} ($(rootfs), $(armed_word))"
 		echo "Target: ${2}"
 		echo "Stage:  ${3}"
@@ -108,7 +136,7 @@ report()
 	done
 	echo "${FOOT}" >> ${REPORT}
 	echo "When a fix is posted: Check for updates, Update, then Upgrade." >> ${REPORT}
-	cp ${REPORT} ${UNSENT}
+	queue_report ${REPORT}
 	touch ${STATE}/notice
 	# Shown in System > Firmware > Updates > Log as well.
 	mkdir -p ${WORKPREFIX}
@@ -267,6 +295,7 @@ cmd_boot()
 	if health > /dev/null && [ ! -f ${STATE}/swapped ]; then
 		if [ -f ${STATE}/attempt ] && [ ! -f ${WORKPREFIX}/.base.pending -a ! -f ${WORKPREFIX}/.pkgs.pending ]; then
 			history "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "$(cat ${STATE}/attempt)" ok done "upgrade finished"
+			report_ok "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "$(cat ${STATE}/attempt)"
 			rm -f ${STATE}/attempt ${STATE}/notice ${REPORT}
 		fi
 		if [ ! -f ${STATE}/attempt ]; then
@@ -412,14 +441,15 @@ cmd_remove()
 
 cmd_send()
 {
-	# Anonymous bug report, retried for an hour while the network comes up.
+	# Anonymous upgrade reports, retried for an hour while the network comes up.
 	TRIES=12
-	while [ -f ${UNSENT} ]; do
-		ID=$(sed -n 's/^ID: *//p' ${UNSENT})
-		if curl -sf -m 30 -G --data-urlencode "id=${ID}" --data-urlencode "r@${UNSENT}" ${REPORTURL} > /dev/null 2>&1; then
-			mv ${UNSENT} ${STATE}/report-sent
-			return 0
-		fi
+	while ls ${OUTBOX}/*.txt > /dev/null 2>&1; do
+		for F in ${OUTBOX}/*.txt; do
+			if curl -sf -m 30 -G --data-urlencode "id=$(basename ${F} .txt)" --data-urlencode "r@${F}" ${REPORTURL} > /dev/null 2>&1; then
+				mv ${F} ${STATE}/last-sent.txt
+			fi
+		done
+		ls ${OUTBOX}/*.txt > /dev/null 2>&1 || return 0
 		TRIES=$(( TRIES - 1 ))
 		[ ${TRIES} -gt 0 ] || return 1
 		sleep 300
@@ -434,8 +464,8 @@ cmd_status()
 	echo "Offer:           $(grep '^UPGRADE_RELEASE' ${UPDATECONF} 2>/dev/null || echo none)"
 	[ -f ${STATE}/kernel.lock.ours ] && echo "Held back:       kernel $(cat ${STATE}/kernel.lock.ours)"
 	[ -f ${STATE}/restart-needed ] && echo "Restart needed to finish setup."
-	[ -f ${UNSENT} ] && echo "Report:          not sent yet"
-	[ -f ${STATE}/report-sent ] && echo "Report:          sent, $(sed -n 's/^ID: */ID /p' ${STATE}/report-sent)"
+	ls ${OUTBOX}/*.txt > /dev/null 2>&1 && echo "Reports:         $(ls ${OUTBOX}/*.txt | wc -l | xargs) waiting to be sent"
+	[ -f ${STATE}/last-sent.txt ] && echo "Last report:     sent, $(sed -n 's/^ID: */ID /p' ${STATE}/last-sent.txt)"
 	echo "History:"
 	tail -n 5 ${HISTORY} 2>/dev/null | sed 's/^/  /'
 }

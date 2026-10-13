@@ -5,5 +5,8 @@ This release comes from the temporary, unofficial Mono Gateway update server at 
 - firmware: a new kernel is tested once; if it doesn't start or comes up broken, the router goes back to its previous version by itself
 - firmware: a release that failed on a router isn't offered to it again until a fixed release is posted
 - firmware: after a rollback, the dashboard shows a short report to post on the Mono Discord
+- firmware: after each upgrade, the router sends a few anonymous details (versions, disk type, result) to improve the upgrade code
 - firmware: changelog and bogon lists now download from the update server (they were a 404 before)
 - offload: restarting cmm now waits for the old copy to exit, so offload keeps working after repeated restarts
+- offload: replies from the offload hardware get their own queue, so heavy non-offloaded traffic can't delay them and stall offload
+- offload: a stalled offload channel is logged now and then instead of flooding the log

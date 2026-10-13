@@ -77,7 +77,7 @@ configctl firmware configure > /dev/null
 
 # The safety package tests new kernels, rolls back failed upgrades and offers the upgrade.
 echo "Installing the safe-upgrade package."
-echo "Failed upgrades send an anonymous bug report to improve the upgrade code."
+echo "Upgrades send some anonymous details, successful or failed update, to improve the upgrade code."
 if ! { pkg update -f -r MonoGateway > /dev/null && pkg install -fy -r MonoGateway mono-upgrade-safety > /dev/null; }; then
 	echo "Could not install the safe-upgrade package from ${SERVER}."
 	echo "Updates are switched, but nothing is offered yet. Run this script again later."
