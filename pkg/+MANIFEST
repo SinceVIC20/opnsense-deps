@@ -1,6 +1,7 @@
 name: "mono-gateway"
 version: "%%VERSION%%"
 origin: "sysutils/mono-gateway"
+annotations: { source_commit: "%%COMMIT%%" }
 comment: "Mono Gateway board support package (NXP LS1046A)"
 desc: <<EOD
 Board-specific kernel modules, userspace tools, configuration files,

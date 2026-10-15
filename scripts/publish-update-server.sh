@@ -2,7 +2,7 @@
 # Build the update server folder from the normal build output, signed with our key.
 # The build's own sets are only read, never changed.
 # Usage: publish-update-server.sh <release> <outdir>
-#   <release> must match RELEASE in the opnsense-update package being served (e.g. 26.7.2).
+#   <release> must match RELEASE in the opnsense-update package being served (e.g. 26.7.5_1).
 #   For a newer release, set OPNSENSE_UPDATE_PKG to an opnsense-update package
 #   made by bump-opnsense-update.sh; it replaces the one in latest/.
 
