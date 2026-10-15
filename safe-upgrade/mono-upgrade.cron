@@ -1,0 +1,2 @@
+# Holds kernel updates while the boot partition is too full, and lets them go again once it has room.
+*/5	*	*	*	*	root	/usr/local/sbin/mono-upgrade check > /dev/null 2>&1

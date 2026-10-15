@@ -9,3 +9,4 @@
 /usr/local/share/mono-upgrade/rootfs
 /usr/local/share/mono-upgrade/version
 /usr/local/opnsense/mvc/app/library/OPNsense/System/Status/MonoUpgradeStatus.php
+/usr/local/etc/cron.d/mono-upgrade

@@ -6,6 +6,7 @@
 #   mono-upgrade shutdown   stop hook, moves a new kernel to the boot partition
 #   mono-upgrade precheck   upgrade hook, refuses a release that failed here
 #   mono-upgrade decide     sets or clears the upgrade offer
+#   mono-upgrade check      holds updates while the boot partition is too full, run by cron
 #   mono-upgrade remove     undoes decide's changes, run by use-official-updates.sh
 #   mono-upgrade send       sends waiting upgrade reports to our server
 #   mono-upgrade status     shows the current state
@@ -63,6 +64,59 @@ copy_verified()
 	cp "${1}" "${2}.new" && cmp -s "${1}" "${2}.new" && mv "${2}.new" "${2}"
 }
 
+space_short()
+{
+	# Prints "<free> <need>" in KB when the boot partition can't take a kernel update.
+	# Same sum as cmd_shutdown, with the next kernel guessed a quarter bigger than this one.
+	mount | grep -q " on ${M} " && [ -f ${M}/kernel.img ] || return 0
+	NEED=$(( $(stat -f %z ${M}/kernel.img) * 5 / 2 / 1024 + 2048 ))
+	FREE=$(( $(df -k ${M} | awk 'NR == 2 { print $4 }') + $(stat -f %z ${M}/kernel.old 2>/dev/null || echo 0) / 1024 ))
+	[ "${FREE}" -lt "${NEED}" ] && echo "${FREE} ${NEED}"
+}
+
+extra_boot_files()
+{
+	# Files on the boot partition that updates don't use, with their size in MB.
+	find ${M} -maxdepth 1 -type f ! -name kernel.img ! -name kernel.old ! -name mono-boot.txt \
+	    -exec stat -f '%N %z' {} + | awk '{ n = split($1, a, "/"); printf "%s (%d MB)\n", a[n], $2 / 1048576 }'
+}
+
+space_guard()
+{
+	# While the boot partition is too full, hold the kernel, base and offload
+	# modules together so an update can't install only part of them.
+	SHORT=$(space_short)
+	if [ -n "${SHORT}" ]; then
+		touch ${STATE}/space.locks
+		if [ ! -f ${VERSIONDIR}/kernel.lock ]; then
+			opnsense-update -kL > /dev/null 2>&1 && echo kernel >> ${STATE}/space.locks
+		fi
+		if [ ! -f ${VERSIONDIR}/base.lock ]; then
+			opnsense-update -bL > /dev/null 2>&1 && echo base >> ${STATE}/space.locks
+		fi
+		if [ "$(pkg query %k mono-gateway 2>/dev/null)" = "0" ]; then
+			pkg lock -qy mono-gateway && echo mono-gateway >> ${STATE}/space.locks
+		fi
+		set -- ${SHORT}
+		{ echo "$(( (${2} - ${1} + 1023) / 1024 ))"; extra_boot_files; } > ${STATE}/space-notice
+	elif [ -f ${STATE}/space.locks ]; then
+		space_release
+	fi
+}
+
+space_release()
+{
+	# Undo only the locks space_guard set; a held-back kernel stays locked.
+	for W in $(cat ${STATE}/space.locks 2>/dev/null); do
+		case "${W}" in
+		kernel)	[ -f ${STATE}/kernel.lock.ours ] || opnsense-update -kU > /dev/null 2>&1 ;;
+		base)	opnsense-update -bU > /dev/null 2>&1 ;;
+		mono-gateway)	pkg unlock -qy mono-gateway ;;
+		esac
+	done
+	rm -f ${STATE}/space.locks ${STATE}/space-notice
+}
+
 health()
 {
 	mount -p | awk '$2 == "/" { print $4 }' | grep -qw rw || { echo "root file system is read-only"; return 1; }
@@ -78,6 +132,16 @@ sanitize()
 	sed -E -e 's/([0-9]{1,3}\.){3}[0-9]{1,3}/x.x.x.x/g' \
 	    -e 's/([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}/xx:xx:xx:xx:xx:xx/g' \
 	    -e 's/[0-9a-fA-F]{1,4}(:[0-9a-fA-F]{0,4}){3,7}/x:x::x/g'
+}
+
+safety_id()
+{
+	# The release the safety package carries; its dotted version would look like an IP address.
+	V=$(cat ${SHARE}/version 2>/dev/null)
+	case "${V}" in
+	*_*)	echo "$(cat ${SHARE}/release 2>/dev/null) rev ${V##*_}" ;;
+	*)	cat ${SHARE}/release 2>/dev/null ;;
+	esac
 }
 
 new_id()
@@ -102,7 +166,7 @@ report_ok()
 		echo "Was:    ${1} ($(rootfs), $(armed_word))"
 		echo "Now:    ${2}"
 		echo "Time:   $(date '+%Y-%m-%d %H:%M')"
-		echo "Safety: $(cat ${SHARE}/version 2>/dev/null)"
+		echo "Safety: $(safety_id)"
 	} | sanitize > ${TMP}
 	queue_report ${TMP}
 	rm -f ${TMP}
@@ -128,7 +192,7 @@ report()
 		echo "Stage:  ${3}"
 		echo "Reason: ${4}"
 		echo "Time:   $(date '+%Y-%m-%d %H:%M')"
-		echo "Safety: $(cat ${SHARE}/version 2>/dev/null)"
+		echo "Safety: $(safety_id)"
 		echo "Log:"
 	} | sanitize > ${REPORT}
 	tail -n 8 ${STATE}/last-upgrade.log 2>/dev/null | sanitize | cut -c 1-80 | while read -r LINE; do
@@ -240,6 +304,7 @@ decide()
 			opnsense-update -kU > /dev/null 2>&1
 			rm -f ${STATE}/kernel.lock.ours
 		fi
+		space_guard
 		;;
 	esac
 }
@@ -316,7 +381,10 @@ refuse_kernel()
 	[ -d ${BOOT}/kernel.old ] && mv ${BOOT}/kernel.old ${BOOT}/kernel && kldxref ${BOOT}/kernel
 	cp ${STATE}/kernel-version/kernel* ${VERSIONDIR}/ 2>/dev/null
 	cancel_upgrade
-	history "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "${NEW}" rolled-back "kernel install" "${1}"
+	# Not enough room isn't the release's fault, so it can be tried again after freeing space.
+	RESULT=rolled-back
+	[ "${2}" = "space" ] && RESULT=refused
+	history "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "${NEW}" ${RESULT} "kernel install" "${1}"
 	report "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "${NEW}" "kernel install" "${1}"
 	decide
 }
@@ -338,7 +406,7 @@ cmd_shutdown()
 	NEED=$(( $(stat -f %z ${K}) * 2 / 1024 + 2048 ))
 	FREE=$(( $(df -k ${M} | awk 'NR == 2 { print $4 }') + $(stat -f %z ${M}/kernel.old 2>/dev/null || echo 0) / 1024 ))
 	if [ "${FREE}" -lt "${NEED}" ]; then
-		refuse_kernel "boot partition has ${FREE} KB free, needs ${NEED} KB"
+		refuse_kernel "boot partition has ${FREE} KB free, needs ${NEED} KB" space
 		return 0
 	fi
 
@@ -376,6 +444,14 @@ cmd_precheck()
 	fi
 	if ! grep -qw "$(rootfs)" ${SHARE}/rootfs; then
 		echo "This release can't start from a $(rootfs) disk yet."
+		return 1
+	fi
+	SHORT=$(space_short)
+	if [ -n "${SHORT}" ]; then
+		set -- ${SHORT}
+		echo "The boot partition (${M}) needs $(( (${2} - ${1} + 1023) / 1024 )) MB more free space for the new kernel."
+		extra_boot_files | sed 's/^/  extra file: /'
+		echo "Move them to the main disk with: mv $(extra_boot_files | sed "s|^|${M}/|; s| ([0-9]* MB)\$||" | xargs) /root/"
 		return 1
 	fi
 	if [ ! -x /usr/local/etc/rc.syshook.d/stop/10-mono-kernel ]; then
@@ -434,6 +510,7 @@ cmd_remove()
 		opnsense-update -kU > /dev/null 2>&1
 		rm -f ${STATE}/kernel.lock.ours
 	fi
+	[ -f ${STATE}/space.locks ] && space_release
 	[ "$(/usr/local/sbin/opnsense-version -a)" = "26.1" ] && clear_offer
 	rm -f ${STATE}/notice
 	return 0
@@ -463,6 +540,7 @@ cmd_status()
 	echo "Rollback:        $(armed_word), record $(${DISK} record get 2>/dev/null || echo unreadable)"
 	echo "Offer:           $(grep '^UPGRADE_RELEASE' ${UPDATECONF} 2>/dev/null || echo none)"
 	[ -f ${STATE}/kernel.lock.ours ] && echo "Held back:       kernel $(cat ${STATE}/kernel.lock.ours)"
+	[ -f ${STATE}/space-notice ] && echo "On hold:         $(cat ${STATE}/space.locks | xargs), boot partition needs $(head -n 1 ${STATE}/space-notice) MB more"
 	[ -f ${STATE}/restart-needed ] && echo "Restart needed to finish setup."
 	ls ${OUTBOX}/*.txt > /dev/null 2>&1 && echo "Reports:         $(ls ${OUTBOX}/*.txt | wc -l | xargs) waiting to be sent"
 	[ -f ${STATE}/last-sent.txt ] && echo "Last report:     sent, $(sed -n 's/^ID: */ID /p' ${STATE}/last-sent.txt)"
@@ -476,8 +554,9 @@ boot)		rm -f ${STATE}/restart-needed; cmd_boot ;;
 shutdown)	cmd_shutdown ;;
 precheck)	cmd_precheck ;;
 decide)		decide ;;
+check)		decide ;;
 remove)		cmd_remove ;;
 send)		cmd_send ;;
 status)		cmd_status ;;
-*)		sed -n '2,12p' ${0}; exit 1 ;;
+*)		sed -n '2,13p' ${0}; exit 1 ;;
 esac
