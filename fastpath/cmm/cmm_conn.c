@@ -1431,9 +1431,13 @@ stats_sync_flush(struct cmm_global *g, struct pfn_counter_entry *entries,
  */
 #define CMM_STATS_SYNC_MAX_PER_TICK	1024
 
+static void conn_cdx_removed(struct cmm_conn *conn, const char *family,
+    const char *reason);
+
 /*
  * Read and reset CDX's counters for one direction of a flow. CDX keeps
  * separate counters for the original and reply directions.
+ * Returns ENOENT if CDX no longer has the flow, -1 if the query failed.
  */
 static int
 conn_flow_stat(struct cmm_global *g, const struct cmm_conn *conn, int reply,
@@ -1462,10 +1466,15 @@ conn_flow_stat(struct cmm_global *g, const struct cmm_conn *conn, int reply,
 		memcpy(cmd.Daddr_v6, daddr, 16);
 	}
 
+	memset(&resp, 0, sizeof(resp));
 	resp_len = sizeof(resp);
 	if (fci_cmd(g->fci_handle, FPP_CMD_STAT_FLOW,
 	    (unsigned short *)&cmd, sizeof(cmd),
 	    (unsigned short *)&resp, &resp_len) != 0)
+		return (-1);
+	if (resp.ackstatus == FPP_ERR_FLOW_ENTRY_NOT_FOUND)
+		return (ENOENT);
+	if (resp.ackstatus != 0)
 		return (-1);
 
 	*packets = resp.TotalPackets;
@@ -1483,6 +1492,7 @@ cmm_conn_stats_sync(struct cmm_global *g)
 	static unsigned int cursor;
 	unsigned int start, i, matched;
 	uint32_t n;
+	int rc;
 
 	if (g->pfnotify_fd < 0)
 		return;
@@ -1509,9 +1519,20 @@ cmm_conn_stats_sync(struct cmm_global *g)
 			/* Check both directions: a mostly one-way flow (e.g. a
 			 * download) can show nothing in the original direction,
 			 * and skipping it would let PF expire the flow. */
-			if (conn_flow_stat(g, conn, 0, &pkts[0], &bytes[0]) != 0) {
-				/* CDX lost a pinned flow without telling us -
-				 * don't leave its PF states pinned forever. */
+			rc = conn_flow_stat(g, conn, 0, &pkts[0], &bytes[0]);
+			if (rc == ENOENT) {
+				/* CDX already dropped it; its notice may still
+				 * be on the way. */
+				cmm_print(CMM_LOG_WARN, "conn: proto=%u gone "
+				    "from CDX at stats sync", conn->proto);
+				conn_cdx_removed(conn,
+				    conn->af == AF_INET ? "IPv4" : "IPv6",
+				    "gone at stats sync");
+				continue;
+			}
+			if (rc != 0) {
+				/* Query failed, so the flow may still be in
+				 * CDX - don't leave its PF states pinned. */
 				if (conn->flags & CONN_F_PINNED) {
 					conn_offload_stop(g, conn, 1);
 					conn->flags |= CONN_F_IDLE;
