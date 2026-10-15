@@ -1607,8 +1607,6 @@ cmm_conn_stats_sync(struct cmm_global *g)
 			if (rc == ENOENT) {
 				/* CDX already dropped it; its notice may still
 				 * be on the way. */
-				cmm_print(CMM_LOG_WARN, "conn: proto=%u gone "
-				    "from CDX at stats sync", conn->proto);
 				conn_cdx_removed(conn,
 				    conn->af == AF_INET ? "IPv4" : "IPv6",
 				    "gone at stats sync");
