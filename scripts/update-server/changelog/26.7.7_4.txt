@@ -2,3 +2,4 @@ This release comes from the temporary, unofficial Mono Gateway update server at 
 
 - system: numpy is built the same way as in official OPNsense, without OpenBLAS, so gcc14, binutils and openblas are no longer needed
 - firmware: those three packages are removed by themselves after the update, which frees about 500 MB on the disk
+- offload: when the hardware drops an idle connection at the same moment as the regular traffic check, the connection is now cleaned up correctly instead of being given leftover traffic counts
