@@ -148,14 +148,10 @@ git -C /usr/ports apply /usr/deps/config/build-fixes/ports-26.7.7.patch
 
 What they change:
 
-- `/usr/tools/config/26.7/make.conf`: adds `MILTER` to `OPTIONS_UNSET`, and
-  builds `math/py-numpy` with `OPENBLAS`.
+- `/usr/tools/config/26.7/make.conf`: adds `MILTER` to `OPTIONS_UNSET`.
 - `/usr/tools/config/26.7/ports.conf` and `plugins.conf`: comments out the
   zabbix 6 and 7.4 ports and puppet; adds `textproc/rubygem-rexml` to
   `ports.conf`.
-- `/usr/tools/config/26.7/aux.conf`: keeps `devel/binutils` in the packages
-  set. On aarch64, openblas and py-numpy need gcc14, which needs binutils;
-  without it pkg refuses every install from the repo.
 - `security/nss`: fixes a duplicate-symbol link error on aarch64
   (`platform_ghash_support` and the `gcm_Hash*_hw` functions defined twice).
 - `sysutils/sysinfo`: new checksum. Codeberg repackaged the 1.0.4 download

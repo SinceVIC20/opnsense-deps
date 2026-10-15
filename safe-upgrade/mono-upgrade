@@ -511,6 +511,17 @@ cmd_setup()
 	return 0
 }
 
+remove_leftovers()
+{
+	# openblas, gcc14 and binutils only came in for numpy's OpenBLAS build,
+	# which 26.7.7_4 dropped. Remove them once nothing installed needs them.
+	for P in openblas gcc14 binutils; do
+		[ "$(pkg query %a ${P} 2> /dev/null)" = 1 ] || continue
+		[ -z "$(pkg query %rn ${P})" ] || continue
+		pkg delete -qy ${P} > /dev/null 2>&1 || return 0
+	done
+}
+
 cmd_remove()
 {
 	# Undo what decide changed, before the package is removed.
@@ -565,7 +576,7 @@ boot)		rm -f ${STATE}/restart-needed; cmd_boot ;;
 shutdown)	cmd_shutdown ;;
 precheck)	cmd_precheck ;;
 decide)		decide ;;
-check)		decide ;;
+check)		decide; remove_leftovers ;;
 remove)		cmd_remove ;;
 send)		cmd_send ;;
 status)		cmd_status ;;

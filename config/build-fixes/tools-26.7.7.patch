@@ -1,16 +1,5 @@
-diff --git a/config/26.7/aux.conf b/config/26.7/aux.conf
-index 60b953f..3595bce 100644
---- a/config/26.7/aux.conf
-+++ b/config/26.7/aux.conf
-@@ -1,5 +1,5 @@
- #ORIGIN						IGNORE
--devel/binutils
-+#devel/binutils					# gcc14 (openblas, py-numpy) needs it on aarch64
- devel/cmake-core
- lang/go126
- lang/go127
 diff --git a/config/26.7/make.conf b/config/26.7/make.conf
-index ab2bd73..edb7d39 100644
+index ab2bd73..e2a17ae 100644
 --- a/config/26.7/make.conf
 +++ b/config/26.7/make.conf
 @@ -25,7 +25,7 @@ PRODUCT_GSSAPI?=	GSSAPI_MIT
@@ -22,17 +11,6 @@ index ab2bd73..edb7d39 100644
  DEFAULT_VERSIONS=	apache=${PRODUCT_APACHE:C/^./&./}
  DEFAULT_VERSIONS+=	lua=${PRODUCT_LUA}
  DEFAULT_VERSIONS+=	perl5=${PRODUCT_PERL}
-@@ -61,8 +61,8 @@ graphics_graphviz_UNSET=	XPM DIGCOLA IPSEPCOLA ICONV PANGOCAIRO
- mail_postfix_SET=		LDAP SASL SASLKMIT
- mail_postfix_UNSET=		BLOCKLISTD
- mail_rspamd_SET=		HYPERSCAN
--math_py-numpy_SET=		NOBLAS
--math_py-numpy_UNSET=		OPENBLAS SUITESPARSE
-+math_py-numpy_SET=		OPENBLAS
-+math_py-numpy_UNSET=		SUITESPARSE
- net-mgmt_flowd_UNSET=		PERL
- net-mgmt_net-snmp_SET=		AES
- net-mgmt_zabbix6-proxy_SET=	SQLITE
 diff --git a/config/26.7/plugins.conf b/config/26.7/plugins.conf
 index b9457e4..bf3129e 100644
 --- a/config/26.7/plugins.conf
