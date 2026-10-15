@@ -74,7 +74,9 @@ static inline void print_hex_dump(const char *level, const char *prefix_str,
  * ---------------------------------------------------------------- */
 #define __init
 #define __exit
+#ifndef __maybe_unused	/* FreeBSD 15.1-p4 cdefs.h defines it */
 #define __maybe_unused		__unused
+#endif
 #define __user			/* user-space pointer annotation: no-op */
 #define MODULE_LICENSE(x)
 #define MODULE_AUTHOR(x)
