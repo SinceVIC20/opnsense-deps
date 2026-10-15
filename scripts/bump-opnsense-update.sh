@@ -3,7 +3,7 @@
 # release's base and kernel sets.  Only the RELEASE line and the package
 # version change.
 # Usage: bump-opnsense-update.sh <opnsense-update-X.pkg> <release> <outdir>
-#   e.g. bump-opnsense-update.sh opnsense-update-26.7.2.pkg 26.7.5_1 /tmp/out
+#   e.g. bump-opnsense-update.sh opnsense-update-26.7.2.pkg 26.7.7_1 /tmp/out
 
 set -e
 

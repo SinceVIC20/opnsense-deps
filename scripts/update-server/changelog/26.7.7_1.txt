@@ -1,6 +1,6 @@
 This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes upgrades safe and lets routers with ZFS disks upgrade too.
 
-- release: renumbered from 26.7.2_2 to 26.7.5_1 so it sits above the OPNsense version on the dashboard; updates count up from here (26.7.5_2, 26.7.5_3, ...)
+- release: renumbered from 26.7.2_2 to 26.7.7_1 to line up with the current OPNsense release; updates count up from here (26.7.7_2, 26.7.7_3, ...). The OPNsense GUI inside is still 26.7.3_8 for now
 - kernel: starts from both UFS and ZFS disks, so routers installed from Mono's official 26.1 and 26.7 images can upgrade
 - kernel: restarts by itself 15 seconds after a crash instead of waiting at the debugger prompt
 - system: FreeBSD 15.1-RELEASE-p3 security fixes (OpenSSL, ppp, iconv, local sockets), which the kernel had but the rest of the system lacked

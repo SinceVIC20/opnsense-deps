@@ -57,7 +57,7 @@ LIBXML2_PKG?=	libxml2-2.15.2.pkg
 LIBXML2_URL=	https://pkg.FreeBSD.org/FreeBSD:14:aarch64/latest/All/${LIBXML2_PKG}
 
 # Package version: derived from git tags (e.g., tag "26.1.2" + 3 commits = "26.1.2_3")
-# Releases pass the release number: make package PKG_VERSION=26.7.5_1
+# Releases pass the release number: make package PKG_VERSION=26.7.7_1
 _PKG_TAG!=	git -C ${OPSDIR} describe --abbrev=0 --always HEAD 2>/dev/null || echo 0.0.0
 _PKG_REV!=	git -C ${OPSDIR} rev-list --count ${_PKG_TAG}..HEAD 2>/dev/null || echo 0
 PKG_VERSION?=	${_PKG_TAG}${_PKG_REV:N0:S/^/_/}
@@ -271,7 +271,7 @@ package: all
 	@echo "==> Package: ${DISTDIR}/mono-gateway-${PKG_VERSION}.pkg"
 
 # Safe-upgrade package: scripts only, installs on 26.1 and 26.7.
-# make safety-package SAFETY_RELEASE=26.7.5_1 [SAFETY_REV=1 for a script-only fix]
+# make safety-package SAFETY_RELEASE=26.7.7_1 [SAFETY_REV=1 for a script-only fix]
 SAFETY_DIR=	${OPSDIR}/safe-upgrade
 SAFETY_STAGEDIR=	${BUILDDIR}/safety-stage
 SAFETY_REV?=	0
@@ -283,7 +283,7 @@ SAFETY_VERSION?=	${SAFETY_RELEASE:S/_/./g}
 SAFETY_ROOTFS?=	ufs zfs
 
 safety-package:
-	@test -n "${SAFETY_RELEASE}" || { echo "Set SAFETY_RELEASE, e.g. 26.7.5_1"; exit 1; }
+	@test -n "${SAFETY_RELEASE}" || { echo "Set SAFETY_RELEASE, e.g. 26.7.7_1"; exit 1; }
 	@rm -f ${DISTDIR}/mono-upgrade-safety-*.pkg
 	@rm -rf ${SAFETY_STAGEDIR}
 	mkdir -p ${SAFETY_STAGEDIR}/usr/local/sbin \
