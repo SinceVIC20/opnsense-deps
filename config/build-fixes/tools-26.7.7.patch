@@ -1,5 +1,16 @@
+diff --git a/config/26.7/aux.conf b/config/26.7/aux.conf
+index 60b953f..3595bce 100644
+--- a/config/26.7/aux.conf
++++ b/config/26.7/aux.conf
+@@ -1,5 +1,5 @@
+ #ORIGIN						IGNORE
+-devel/binutils
++#devel/binutils					# gcc14 (openblas, py-numpy) needs it on aarch64
+ devel/cmake-core
+ lang/go126
+ lang/go127
 diff --git a/config/26.7/make.conf b/config/26.7/make.conf
-index 6d3f1f1..fe9b52f 100644
+index ab2bd73..edb7d39 100644
 --- a/config/26.7/make.conf
 +++ b/config/26.7/make.conf
 @@ -25,7 +25,7 @@ PRODUCT_GSSAPI?=	GSSAPI_MIT
@@ -11,7 +22,7 @@ index 6d3f1f1..fe9b52f 100644
  DEFAULT_VERSIONS=	apache=${PRODUCT_APACHE:C/^./&./}
  DEFAULT_VERSIONS+=	lua=${PRODUCT_LUA}
  DEFAULT_VERSIONS+=	perl5=${PRODUCT_PERL}
-@@ -60,8 +60,8 @@ graphics_graphviz_UNSET=	XPM DIGCOLA IPSEPCOLA ICONV PANGOCAIRO
+@@ -61,8 +61,8 @@ graphics_graphviz_UNSET=	XPM DIGCOLA IPSEPCOLA ICONV PANGOCAIRO
  mail_postfix_SET=		LDAP SASL SASLKMIT
  mail_postfix_UNSET=		BLOCKLISTD
  mail_rspamd_SET=		HYPERSCAN
@@ -23,7 +34,7 @@ index 6d3f1f1..fe9b52f 100644
  net-mgmt_net-snmp_SET=		AES
  net-mgmt_zabbix6-proxy_SET=	SQLITE
 diff --git a/config/26.7/plugins.conf b/config/26.7/plugins.conf
-index c50b557..326801e 100644
+index b9457e4..bf3129e 100644
 --- a/config/26.7/plugins.conf
 +++ b/config/26.7/plugins.conf
 @@ -24,12 +24,12 @@ net-mgmt/net-snmp
@@ -43,7 +54,7 @@ index c50b557..326801e 100644
  net/chrony
  net/cloudflared
  net/firewall-legacy
-@@ -90,7 +90,7 @@ sysutils/munin-node
+@@ -91,7 +91,7 @@ sysutils/munin-node
  sysutils/nextcloud-backup
  sysutils/node_exporter
  sysutils/nut
@@ -53,10 +64,10 @@ index c50b557..326801e 100644
  sysutils/smart
  sysutils/virtualbox				aarch64
 diff --git a/config/26.7/ports.conf b/config/26.7/ports.conf
-index 7e2312d..802f72d 100644
+index 87701a0..857197f 100644
 --- a/config/26.7/ports.conf
 +++ b/config/26.7/ports.conf
-@@ -100,12 +100,12 @@ net-mgmt/py-opn-cli
+@@ -102,12 +102,12 @@ net-mgmt/rubygem-opn_api
  net-mgmt/telegraf
  net-mgmt/xymon-client
  net-mgmt/yaf
@@ -73,16 +84,7 @@ index 7e2312d..802f72d 100644
  net/addrwatch
  net/bird2
  net/chrony
-@@ -239,7 +239,7 @@ sysutils/node_exporter
- sysutils/nut
- sysutils/pftop
- sysutils/pstree
--sysutils/puppet8
-+#sysutils/puppet8
- sysutils/screen
- sysutils/smartmontools
- sysutils/superiotool				aarch64
-@@ -252,6 +252,7 @@ sysutils/xe-guest-utilities			aarch64
+@@ -253,6 +253,7 @@ sysutils/xe-guest-utilities			aarch64
  textproc/colordiff
  textproc/jq
  textproc/minify

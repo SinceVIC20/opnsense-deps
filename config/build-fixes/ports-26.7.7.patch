@@ -1,0 +1,40 @@
+diff --git a/security/nss/files/patch-coreconf_FreeBSD.mk b/security/nss/files/patch-coreconf_FreeBSD.mk
+index 686309506..58d01702a 100644
+--- a/security/nss/files/patch-coreconf_FreeBSD.mk
++++ b/security/nss/files/patch-coreconf_FreeBSD.mk
+@@ -41,10 +41,23 @@ index fcbf23f6a..280d3a140 100644
+  ifdef MAPFILE
+  	MKSHLIB += -Wl,--version-script,$(MAPFILE)
+  endif
+-@@ -55,4 +65,5 @@ PROCESS_MAP_FILE = grep -v ';-' $< | \
++@@ -55,4 +65,18 @@ PROCESS_MAP_FILE = grep -v ';-' $< | \
+  
+  G++INCLUDES		= -I/usr/include/g++
+  
+ -INCLUDES		+= -I/usr/X11R6/include
+ +USE_SYSTEM_ZLIB		= 1
+ +ZLIB_LIBS		= -lz
+++
+++# Test toolchain for endianness and set LITTLE_ENDIAN accordingly. Upstream
+++# only does this in Linux.mk; without it, aarch64 builds silently skip
+++# -DHAVE_PLATFORM_GHASH in lib/freebl/Makefile while still adding
+++# ghash-aarch64.c to EXTRA_SRCS, causing a duplicate-symbol link error
+++# (platform_ghash_support, gcm_Hash*_hw) against gcm.c's stub definitions
+++# of the same platform-ghash functions.
+++ENDIANNESS := $(shell echo | $(CC) -dM -E - | grep __BYTE_ORDER__)
+++ifeq ($(findstring __ORDER_LITTLE_ENDIAN__,$(ENDIANNESS)),__ORDER_LITTLE_ENDIAN__)
+++    LITTLE_ENDIAN := 1
+++else
+++    LITTLE_ENDIAN := 0
+++endif
+diff --git a/sysutils/sysinfo/distinfo b/sysutils/sysinfo/distinfo
+index b9bf11017..7566b826a 100644
+--- a/sysutils/sysinfo/distinfo
++++ b/sysutils/sysinfo/distinfo
+@@ -1,3 +1,3 @@
+-TIMESTAMP = 1746750995
+-SHA256 (sysinfo-1.0.4.tar.gz) = 08a167d1476da3c740022282dbcf8244ce098b9d7528c5ef82364566dfd0d87b
+-SIZE (sysinfo-1.0.4.tar.gz) = 15618
++TIMESTAMP = 1792060227
++SHA256 (sysinfo-1.0.4.tar.gz) = 4e6f7cd237822521813cfb0dde0d4213cba0d4c9ed266f8edce7a1def85c9d32
++SIZE (sysinfo-1.0.4.tar.gz) = 15546

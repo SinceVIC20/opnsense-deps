@@ -56,7 +56,7 @@ on performance or functionality.
 
 ## Build instructions
 
-These steps build OPNsense 26.7 (FreeBSD 15.1) for the Mono Gateway from the
+These steps build OPNsense 26.7.7 (FreeBSD 15.1-RELEASE-p4) for the Mono Gateway from the
 `mono-gateway-dev` branches of
 [SinceVIC20/opnsense-src](https://github.com/SinceVIC20/opnsense-src) and
 [SinceVIC20/opnsense-deps](https://github.com/SinceVIC20/opnsense-deps).
@@ -106,26 +106,26 @@ git clone -b stable/26.7 https://github.com/opnsense/plugins /usr/plugins
 ```
 
 ```
-git clone -b 2026Q3 https://git.FreeBSD.org/ports.git /usr/ports
+git clone https://github.com/opnsense/ports /usr/ports
 ```
 
-Set tools, core, plugins and ports to the commits these builds are tested
-with. `reset` keeps each repo on its branch, which the tools check for:
+Set tools, core, plugins and ports to the OPNsense 26.7.7 release. `reset`
+keeps each repo on its branch, which the tools check for:
 
 ```
-git -C /usr/tools reset -q --hard d07b7e2b1ce5
-```
-
-```
-git -C /usr/core reset -q --hard bf16bfcdaf43
+git -C /usr/tools reset -q --hard 26.7.7
 ```
 
 ```
-git -C /usr/plugins reset -q --hard 335042e98010
+git -C /usr/core reset -q --hard 26.7.7
 ```
 
 ```
-git -C /usr/ports reset -q --hard 957070544aab
+git -C /usr/plugins reset -q --hard 26.7.7
+```
+
+```
+git -C /usr/ports reset -q --hard 26.7.7
 ```
 
 Then add the board file:
@@ -136,33 +136,30 @@ cp /usr/deps/config/GATEWAY.conf /usr/tools/device/
 
 ### 3. Fixes needed on top of tools and ports
 
-FreeBSD's quarterly ports have moved on from what OPNsense 26.7's settings
-expect, so the package build needs a few changes. Apply them with:
+The package build needs a few changes on aarch64. Apply them with:
 
 ```
-git -C /usr/tools apply /usr/deps/config/build-fixes/tools-26.7.patch
+git -C /usr/tools apply /usr/deps/config/build-fixes/tools-26.7.7.patch
 ```
 
 ```
-git -C /usr/ports apply --whitespace=nowarn /usr/deps/config/build-fixes/ports-2026Q3.patch
+git -C /usr/ports apply /usr/deps/config/build-fixes/ports-26.7.7.patch
 ```
 
 What they change:
 
 - `/usr/tools/config/26.7/make.conf`: adds `MILTER` to `OPTIONS_UNSET`, and
-  builds `math/py-numpy` with `OPENBLAS` (its `NOBLAS` option no longer exists).
+  builds `math/py-numpy` with `OPENBLAS`.
 - `/usr/tools/config/26.7/ports.conf` and `plugins.conf`: comments out the
-  zabbix 6 and 7.4 ports and puppet, which no longer build; adds
-  `textproc/rubygem-rexml` to `ports.conf`.
+  zabbix 6 and 7.4 ports and puppet; adds `textproc/rubygem-rexml` to
+  `ports.conf`.
+- `/usr/tools/config/26.7/aux.conf`: keeps `devel/binutils` in the packages
+  set. On aarch64, openblas and py-numpy need gcc14, which needs binutils;
+  without it pkg refuses every install from the repo.
 - `security/nss`: fixes a duplicate-symbol link error on aarch64
   (`platform_ghash_support` and the `gcm_Hash*_hw` functions defined twice).
-- `security/openssh-portable`: replaced with the port from opnsense/ports tag
-  `26.7.4` (OpenSSH 10.5p1). OPNsense core 26.7.3 and later always write an
-  ML-DSA key setting into `sshd_config`, and the 2026Q3 port (10.3p1) refuses
-  to start with it.
-- `opnsense/`: adds the OPNsense ports category from
-  [opnsense/ports](https://github.com/opnsense/ports), so it doesn't need to be
-  cloned separately.
+- `sysutils/sysinfo`: new checksum. Codeberg repackaged the 1.0.4 download
+  with the same contents.
 
 ### 4. Kernel and base sets
 
@@ -198,16 +195,24 @@ make -C /usr/deps -j5 all
 make -C /usr/deps package
 ```
 
+```
+make -C /usr/deps safety-package SAFETY_RELEASE=26.7.7_3
+```
+
 The cmm build has no header dependencies, so always remove its objects first.
 Always build through this top-level Makefile, not a component's own Makefile.
-The result is `/usr/deps/dist/mono-gateway-<version>.pkg`.
+Use the newest release on the update server as `SAFETY_RELEASE`.
+The results are `/usr/deps/dist/mono-gateway-<version>.pkg` and
+`mono-upgrade-safety-<version>.pkg`. The image needs both: mono-gateway
+depends on the safety package, and without it the image is built without
+mono-gateway (no offload).
 
 ### 6. Packages set
 
 Download the packages set from the temporary update server instead of building it:
 
 ```
-make -C /usr/tools prefetch-packages MIRRORS=https://mono-opnsense.sincevic20.com VERSION=26.7.2_2 SETTINGS=26.7 TOOLSDIR=/usr/tools
+make -C /usr/tools prefetch-packages MIRRORS=https://mono-opnsense.sincevic20.com VERSION=26.7.7_3 SETTINGS=26.7 TOOLSDIR=/usr/tools
 ```
 
 Use the newest `packages-*` version listed at
@@ -218,7 +223,7 @@ hours, done by the first `arm-5G` below).
 ### 7. Image
 
 ```
-make -C /usr/tools arm-5G DEVICE=GATEWAY SETTINGS=26.7 TOOLSDIR=/usr/tools SRCBRANCH=mono-gateway-dev PORTSBRANCH=2026Q3
+make -C /usr/tools arm-5G DEVICE=GATEWAY SETTINGS=26.7 TOOLSDIR=/usr/tools SRCBRANCH=mono-gateway-dev
 ```
 
 ```
@@ -226,8 +231,7 @@ make -C /usr/deps compress-image OPS_SETTINGS=26.7
 ```
 
 If there is no packages set yet, the first `arm-5G` builds it, and later
-builds reuse it. Either way, check the packages set has `openssh-portable` 10.4
-or newer.
+builds reuse it.
 
 `compress-image` zeroes the image's free space and writes
 `OPNsense-*-arm-aarch64-GATEWAY.img.bz2` with `.sha256` and `.md5` files.
