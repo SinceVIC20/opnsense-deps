@@ -2,6 +2,7 @@
 # Safe upgrades for the Mono Gateway: tests a new kernel once, rolls back by
 # itself when it fails, and holds back a release that failed on this router.
 #   mono-upgrade prepare    one-time setup, run by use-temp-updates.sh
+#   mono-upgrade setup      light setup when an update pulled the package in
 #   mono-upgrade boot       early boot hook
 #   mono-upgrade shutdown   stop hook, moves a new kernel to the boot partition
 #   mono-upgrade precheck   upgrade hook, refuses a release that failed here
@@ -501,6 +502,15 @@ cmd_prepare()
 	decide
 }
 
+cmd_setup()
+{
+	# Installed by an update instead of the script: record the running kernel and
+	# ports before that update can install a new kernel. Rollback stays unarmed.
+	[ -d ${STATE}/kernel-version ] || save_running_kernel
+	[ -f ${STATE}/ports ] || ifconfig -l | tr ' ' '\n' | grep -c '^dtsec' > ${STATE}/ports
+	return 0
+}
+
 cmd_remove()
 {
 	# Undo what decide changed, before the package is removed.
@@ -550,6 +560,7 @@ cmd_status()
 
 case "${1}" in
 prepare)	cmd_prepare ;;
+setup)		cmd_setup ;;
 boot)		rm -f ${STATE}/restart-needed; cmd_boot ;;
 shutdown)	cmd_shutdown ;;
 precheck)	cmd_precheck ;;
@@ -558,5 +569,5 @@ check)		decide ;;
 remove)		cmd_remove ;;
 send)		cmd_send ;;
 status)		cmd_status ;;
-*)		sed -n '2,13p' ${0}; exit 1 ;;
+*)		sed -n '2,14p' ${0}; exit 1 ;;
 esac

@@ -261,8 +261,9 @@ package: all
 	chmod 755 ${PKG_STAGEDIR}/usr/local/opnsense/scripts/hwmon/sensors.py
 	# CMM configd action (restart on interface reassignment)
 	install -m 644 ${PKG_CONFDIR}/actions_cmm.conf ${PKG_STAGEDIR}/usr/local/opnsense/service/conf/actions.d/
-	# Generate manifest with version and the commit it was built from
-	sed -e 's/%%VERSION%%/${PKG_VERSION}/' -e 's/%%COMMIT%%/${PKG_COMMIT}/' ${PKG_METADIR}/+MANIFEST \
+	# Generate manifest with version, the commit it was built from and the safety package it pulls in
+	sed -e 's/%%VERSION%%/${PKG_VERSION}/' -e 's/%%COMMIT%%/${PKG_COMMIT}/' \
+	    -e 's/%%SAFETY_DEP_VERSION%%/${PKG_VERSION:S/_/./g}/' ${PKG_METADIR}/+MANIFEST \
 	    > ${PKG_STAGEDIR}/+MANIFEST
 	# Build package (ABI override for cross-compilation on amd64 host)
 	ABI=FreeBSD:15:aarch64 pkg create \

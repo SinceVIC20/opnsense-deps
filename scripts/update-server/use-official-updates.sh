@@ -60,5 +60,5 @@ grep -h "url:" /usr/local/etc/pkg/repos/OPNsense.conf /usr/local/etc/pkg/repos/M
 echo
 echo "Done. Updates now come from Mono's official server."
 echo "Note: Mono's builds only include fixes Mono has merged."
-[ -x /usr/local/sbin/mono-upgrade ] && echo "The safe-upgrade checks stay installed; 'pkg delete mono-upgrade-safety' removes them."
+[ -x /usr/local/sbin/mono-upgrade ] && echo "The safe-upgrade checks stay installed; 'pkg delete -f mono-upgrade-safety' removes them."
 echo "Previous config saved as /root/config-before-official-updates.xml"

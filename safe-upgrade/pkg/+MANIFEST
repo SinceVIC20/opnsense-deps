@@ -20,6 +20,7 @@ scripts: {
 if mount | grep -q ' on /boot/msdos '; then
 	cp /usr/local/share/mono-upgrade/mono-boot.txt /boot/msdos/mono-boot.txt
 fi
+/usr/local/sbin/mono-upgrade setup || true
 /usr/local/sbin/mono-upgrade decide || true
 EOD
 }
