@@ -28,6 +28,8 @@ struct cmm_route {
 	uint8_t			src[16];	/* preferred source */
 	int			oif_hint;	/* pf route-to override, part
 						 * of the cache key; 0=none */
+	uint8_t			gw_hint[16];	/* pf route-to gateway, part
+						 * of the cache key */
 	int			oif_index;	/* output interface index */
 	int			iif_index;	/* input interface, part of
 						 * the cache key; 0=none */
@@ -45,13 +47,14 @@ void cmm_route_fini(void);
 
 /*
  * Get route for destination.  Resolves via route socket RTM_GET.
- * oif_hint, if non-zero, overrides the resolved output interface with
- * a pf route-to/reply-to egress interface - use 0 for normal routing.
+ * oif_hint, if non-zero, overrides the resolved output interface and
+ * gw_hint the gateway with pf's route-to/reply-to choice - use 0 and
+ * NULL for normal routing.
  * iif is the input interface flows using this route arrive on, or 0.
  * Returns NULL if no route.  Caller must call cmm_route_put().
  */
 struct cmm_route *cmm_route_get(struct cmm_global *g, sa_family_t af,
-    const void *dst, int oif_hint, int iif);
+    const void *dst, int oif_hint, const void *gw_hint, int iif);
 
 /* Release reference */
 void cmm_route_put(struct cmm_route *rt);

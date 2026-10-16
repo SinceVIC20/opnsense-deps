@@ -45,16 +45,17 @@ route_hash_index(sa_family_t af, const void *dst, int oif_hint, int iif)
 }
 
 /*
- * Find a cached route by (family, dst, oif_hint, iif).  oif_hint is part
- * of the key so a route-to'd connection never collides with a plain
- * default-routed one to the same destination - they need genuinely
- * different routes, not just different metadata on a shared one.
+ * Find a cached route by (family, dst, oif_hint, gw_hint, iif).  The
+ * hints are part of the key so a route-to'd connection never collides
+ * with a plain default-routed one to the same destination - they need
+ * genuinely different routes, not just different metadata on a shared one.
  * iif is part of it for the same reason: CDX installs a route's flows
  * on its input port, so flows arriving on different interfaces need
  * their own route (ASK keys routes on iifindex too).
  */
 static struct cmm_route *
-route_find(sa_family_t af, const void *dst, int oif_hint, int iif)
+route_find(sa_family_t af, const void *dst, int oif_hint,
+    const uint8_t *gw_hint, int iif)
 {
 	struct list_head *bucket, *pos;
 	struct cmm_route *rt;
@@ -68,7 +69,8 @@ route_find(sa_family_t af, const void *dst, int oif_hint, int iif)
 	for (pos = list_first(bucket); pos != bucket; pos = list_next(pos)) {
 		rt = container_of(pos, struct cmm_route, entry);
 		if (rt->family == af && rt->oif_hint == oif_hint &&
-		    rt->iif_index == iif && memcmp(rt->dst, dst, alen) == 0)
+		    rt->iif_index == iif && memcmp(rt->dst, dst, alen) == 0 &&
+		    memcmp(rt->gw_hint, gw_hint, alen) == 0)
 			return (rt);
 	}
 	return (NULL);
@@ -126,17 +128,18 @@ route_resolve(struct cmm_global *g, struct cmm_route *rt)
 	}
 
 	/* pf route-to/reply-to sent this connection out a specific
-	 * interface - honor that instead of the default FIB's answer,
-	 * which knows nothing about pf's per-connection routing rules. */
+	 * interface and gateway - honor that instead of the default FIB's
+	 * answer, which knows nothing about pf's per-connection routing
+	 * rules.  The FIB's MTU belongs to its own route, so use the
+	 * interface's. */
 	if (rt->oif_hint != 0) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "route: resolve fib_oif=%d overridden to oif_hint=%d",
 		    rt->oif_index, rt->oif_hint);
 		rt->oif_index = rt->oif_hint;
-	}
-
-	/* Get gateway */
-	if ((rtm->rtm_flags & RTF_GATEWAY) && addrs.gateway != NULL) {
+		memcpy(rt->gw, rt->gw_hint, sizeof(rt->gw));
+		rt->mtu = 0;
+	} else if ((rtm->rtm_flags & RTF_GATEWAY) && addrs.gateway != NULL) {
 		if (addrs.gateway->sa_family == AF_INET) {
 			struct sockaddr_in *gw;
 			gw = (struct sockaddr_in *)addrs.gateway;
@@ -247,13 +250,17 @@ cmm_route_alloc_id(struct cmm_global *g)
 
 struct cmm_route *
 cmm_route_get(struct cmm_global *g, sa_family_t af, const void *dst,
-    int oif_hint, int iif)
+    int oif_hint, const void *gw_hint, int iif)
 {
+	static const uint8_t no_gw[16];
 	struct cmm_route *rt;
 	unsigned int h;
 	int alen;
 
-	rt = route_find(af, dst, oif_hint, iif);
+	if (oif_hint == 0 || gw_hint == NULL)
+		gw_hint = no_gw;
+
+	rt = route_find(af, dst, oif_hint, gw_hint, iif);
 	if (rt != NULL) {
 		rt->refcount++;
 		return (rt);
@@ -268,6 +275,7 @@ cmm_route_get(struct cmm_global *g, sa_family_t af, const void *dst,
 	rt->family = af;
 	memcpy(rt->dst, dst, alen);
 	rt->oif_hint = oif_hint;
+	memcpy(rt->gw_hint, gw_hint, alen);
 	rt->iif_index = iif;
 	rt->fpp_id = cmm_route_alloc_id(g);
 	if (rt->fpp_id == 0) {

@@ -562,6 +562,41 @@ pfn_set_pin(struct pfn_pin_update *upd, struct thread *td)
 }
 
 static int
+pfn_get_state_rt(struct pfn_state_rt *srt, struct thread *td)
+{
+	struct pf_kstate *s;
+	int error = 0;
+
+	srt->ifindex = 0;
+	srt->rt = PF_NOPFROUTE;
+	srt->af = 0;
+	memset(srt->pad, 0, sizeof(srt->pad));
+	memset(srt->addr, 0, sizeof(srt->addr));
+
+	CURVNET_SET(TD_TO_VNET(td));
+	s = pf_find_state_byid(srt->id, srt->creatorid);
+	if (s == NULL) {
+		error = ENOENT;
+	} else {
+		srt->rt = s->act.rt;
+		srt->af = s->act.rt_af;
+		if (s->act.rt_kif != NULL && s->act.rt_kif->pfik_ifp != NULL)
+			srt->ifindex = if_getindex(s->act.rt_kif->pfik_ifp);
+		memcpy(srt->addr, &s->act.rt_addr, sizeof(srt->addr));
+		PF_STATE_UNLOCK(s);
+		/* Drop the kernel's embedded scope from a link-local
+		 * gateway, ifindex already names the interface. */
+		if (srt->af == AF_INET6 && srt->addr[0] == 0xfe &&
+		    (srt->addr[1] & 0xc0) == 0x80) {
+			srt->addr[2] = 0;
+			srt->addr[3] = 0;
+		}
+	}
+	CURVNET_RESTORE();
+	return (error);
+}
+
+static int
 pfn_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
     int fflag __unused, struct thread *td)
 {
@@ -576,6 +611,8 @@ pfn_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
 		break;
 	case PFN_IOC_SET_PIN:
 		return (pfn_set_pin((struct pfn_pin_update *)data, td));
+	case PFN_IOC_GET_STATE_RT:
+		return (pfn_get_state_rt((struct pfn_state_rt *)data, td));
 	default:
 		return (ENOTTY);
 	}
