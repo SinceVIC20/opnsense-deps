@@ -20,3 +20,8 @@ prefix: "/"
 categories: ["sysutils"]
 licenses: ["BSD2CLAUSE"]
 licenselogic: "single"
+scripts: {
+  post-install: <<EOD
+/usr/local/etc/rc.syshook.d/start/50-mono-motd %%VERSION%% || true
+EOD
+}

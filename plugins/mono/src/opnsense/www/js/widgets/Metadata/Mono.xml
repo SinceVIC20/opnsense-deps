@@ -1,0 +1,24 @@
+<metadata>
+    <mono>
+        <filename>Mono.js</filename>
+        <link>/ui/core/firmware</link>
+        <endpoints>
+            <endpoint>/api/mono/status/info</endpoint>
+        </endpoints>
+        <translations>
+            <title>Mono Gateway</title>
+            <release>Release</release>
+            <notes>release notes</notes>
+            <offload>Hardware offload</offload>
+            <on>On</on>
+            <connections>connections in hardware</connections>
+            <off>Off, the cmm service is stopped</off>
+            <start>Turn it on here</start>
+            <unavailable>Not available, the offload driver is not loaded</unavailable>
+            <reboot>restart the router</reboot>
+            <server>Current update server</server>
+            <default>OPNsense default</default>
+            <unknown>Unknown</unknown>
+        </translations>
+    </mono>
+</metadata>

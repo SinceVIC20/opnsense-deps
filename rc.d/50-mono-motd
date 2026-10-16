@@ -1,0 +1,11 @@
+#!/bin/sh
+
+# Add the Mono Gateway release to the login message.
+MOTD=/var/run/motd
+RELEASE=${1:-$(pkg query %v mono-gateway 2>/dev/null)}
+
+[ -n "${RELEASE}" ] || exit 0
+[ -f ${MOTD} ] || exit 0
+
+sed -i '' '/^ Mono Gateway release /d' ${MOTD}
+echo " Mono Gateway release ${RELEASE}" >> ${MOTD}

@@ -1,1 +1,2 @@
 - offload: more room to queue hardware notices, so a burst of short connections ending at once no longer drops some of them
+- dashboard: a new Mono Gateway widget shows the release, whether hardware offload is on and which update server is used (added to the dashboard once, after the restart), and the login message now shows the release too

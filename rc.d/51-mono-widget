@@ -1,0 +1,69 @@
+#!/usr/local/bin/php
+<?php
+
+/*
+ * Add the Mono Gateway widget to every user's dashboard, once. Users who
+ * remove it afterwards keep it removed. "dry" only shows what would change.
+ */
+
+require_once('config.inc');
+
+use OPNsense\Core\Config;
+
+$marker = '/var/db/mono-widget-added';
+$dry = ($argv[1] ?? '') == 'dry';
+
+if (file_exists($marker) && !$dry) {
+    exit(0);
+}
+if (!file_exists('/usr/local/opnsense/www/js/widgets/Mono.js')) {
+    exit(0);
+}
+
+/* OPNsense 26.7 default dashboard, used for users who never saved one */
+$default = [
+    'options' => [],
+    'widgets' => [
+        ['id' => 'systeminformation', 'x' => 0, 'y' => 0, 'w' => 2],
+        ['id' => 'memory', 'x' => 2, 'y' => 0],
+        ['id' => 'disk', 'x' => 3, 'y' => 0],
+        ['id' => 'interfacestatistics', 'x' => 4, 'y' => 0, 'w' => 4],
+        ['id' => 'firewall', 'x' => 8, 'y' => 0, 'w' => 4],
+        ['id' => 'gateways', 'x' => 2, 'y' => 1, 'w' => 2],
+        ['id' => 'interfaces', 'x' => 4, 'y' => 1, 'w' => 4],
+        ['id' => 'services', 'x' => 4, 'y' => 2, 'w' => '4'],
+        ['id' => 'traffic', 'x' => 8, 'y' => 1, 'w' => 4],
+        ['id' => 'cpu', 'x' => 0, 'y' => 1, 'w' => 2],
+        ['id' => 'announcements', 'x' => 2, 'y' => 2, 'w' => 2],
+    ]
+];
+
+$mdl = new OPNsense\Auth\User();
+$changed = false;
+
+foreach ($mdl->user->iterateItems() as $node) {
+    $name = (string)$node->name;
+    $dashboard = $node->dashboard->deserialize();
+    if (empty($dashboard['widgets'])) {
+        $dashboard = $default;
+    }
+    if (in_array('mono', array_column($dashboard['widgets'], 'id'))) {
+        echo "{$name}: already has the widget\n";
+        continue;
+    }
+    /* no position given, so the dashboard puts it in the first free spot */
+    $dashboard['widgets'][] = ['id' => 'mono', 'w' => 2];
+    echo "{$name}: adding the widget\n";
+    if (!$dry) {
+        $node->dashboard->serialize($dashboard);
+        $changed = true;
+    }
+}
+
+if ($changed) {
+    $mdl->serializeToConfig(false, true);
+    Config::getInstance()->save();
+}
+if (!$dry) {
+    touch($marker);
+}

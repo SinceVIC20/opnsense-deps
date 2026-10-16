@@ -223,6 +223,7 @@ package: all
 	@mkdir -p ${PKG_STAGEDIR}/usr/local/etc/rc.d
 	@mkdir -p ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/early
 	@mkdir -p ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/stop
+	@mkdir -p ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/start
 	# Kernel modules
 	install -m 644 ${DISTDIR}/cdx.ko ${PKG_STAGEDIR}/boot/modules/
 	install -m 644 ${DISTDIR}/fci.ko ${PKG_STAGEDIR}/boot/modules/
@@ -256,9 +257,17 @@ package: all
 	install -m 755 ${PKG_RCDDIR}/01-mono-modules ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/early/
 	# rc.syshook stop scripts
 	install -m 755 ${PKG_RCDDIR}/20-kernel-update ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/stop/
+	# rc.syshook start scripts
+	install -m 755 ${PKG_RCDDIR}/50-mono-motd ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/start/
+	install -m 755 ${PKG_RCDDIR}/51-mono-widget ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/start/
 	# OPNsense plugin files (hwmon dashboard widget)
 	cp -R ${OPSDIR}/plugins/hwmon/src/opnsense/ ${PKG_STAGEDIR}/usr/local/opnsense/
 	chmod 755 ${PKG_STAGEDIR}/usr/local/opnsense/scripts/hwmon/sensors.py
+	# OPNsense plugin files (release and offload dashboard widget)
+	cp -R ${OPSDIR}/plugins/mono/src/opnsense/ ${PKG_STAGEDIR}/usr/local/opnsense/
+	chmod 755 ${PKG_STAGEDIR}/usr/local/opnsense/scripts/mono/status.py
+	mkdir -p ${PKG_STAGEDIR}/usr/local/etc/inc/plugins.inc.d
+	install -m 644 ${OPSDIR}/plugins/mono/src/etc/inc/plugins.inc.d/mono.inc ${PKG_STAGEDIR}/usr/local/etc/inc/plugins.inc.d/
 	# CMM configd action (restart on interface reassignment)
 	install -m 644 ${PKG_CONFDIR}/actions_cmm.conf ${PKG_STAGEDIR}/usr/local/opnsense/service/conf/actions.d/
 	# Generate manifest with version, the commit it was built from and the safety package it pulls in

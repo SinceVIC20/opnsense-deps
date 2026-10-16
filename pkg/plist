@@ -26,6 +26,8 @@
 /usr/local/etc/rc.d/mwifiex_uap
 /usr/local/etc/rc.syshook.d/early/01-mono-modules
 /usr/local/etc/rc.syshook.d/stop/20-kernel-update
+/usr/local/etc/rc.syshook.d/start/50-mono-motd
+/usr/local/etc/rc.syshook.d/start/51-mono-widget
 @dir /usr/local/opnsense/scripts/hwmon
 /usr/local/opnsense/scripts/hwmon/sensors.py
 /usr/local/opnsense/service/conf/actions.d/actions_hwmon.conf
@@ -34,3 +36,11 @@
 /usr/local/opnsense/mvc/app/models/OPNsense/Hwmon/ACL/ACL.xml
 /usr/local/opnsense/www/js/widgets/Hwmon.js
 /usr/local/opnsense/www/js/widgets/Metadata/Hwmon.xml
+@dir /usr/local/opnsense/scripts/mono
+/usr/local/opnsense/scripts/mono/status.py
+/usr/local/opnsense/service/conf/actions.d/actions_mono.conf
+/usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/Api/StatusController.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Mono/ACL/ACL.xml
+/usr/local/opnsense/www/js/widgets/Mono.js
+/usr/local/opnsense/www/js/widgets/Metadata/Mono.xml
+/usr/local/etc/inc/plugins.inc.d/mono.inc
