@@ -1,2 +1,4 @@
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It adds a Mono Gateway box to the dashboard that shows the release and whether hardware offload is working, and stops the router from dropping hardware notices during bursts of short connections.
+
 - offload: more room to queue hardware notices, so a burst of short connections ending at once no longer drops some of them
-- dashboard: a new Mono Gateway widget shows the release, whether hardware offload is on and which update server is used (added to the dashboard once, after the restart), and the login message now shows the release too
+- dashboard: a new Mono Gateway widget shows the release, whether hardware offload is on and which update server is used (added to the dashboard once, after the restart), the login message now shows the release too, and cmm, the hardware offload service, can be started and stopped under System > Diagnostics > Services
