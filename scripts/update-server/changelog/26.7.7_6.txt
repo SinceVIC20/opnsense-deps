@@ -1,0 +1,1 @@
+- offload: more room to queue hardware notices, so a burst of short connections ending at once no longer drops some of them
