@@ -1,2 +1,4 @@
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes hardware offload recover by itself from a bug that used to need a restart.
+
 - firmware: kea and flock are moved back to the OPNsense 26.7.7 versions on routers that were updated before 26.7.7_3 (kea is skipped while it is running)
 - offload: if the hardware is slow to confirm a cleanup, it now recovers by itself instead of needing a restart, and memory from closed connections is freed again
