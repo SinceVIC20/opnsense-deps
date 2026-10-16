@@ -358,7 +358,8 @@ route_rekey(struct cmm_global *g, struct cmm_route **rtp, int iif)
 {
 	struct cmm_route *old = *rtp, *rt;
 
-	rt = cmm_route_get(g, old->family, old->dst, old->oif_hint, iif);
+	rt = cmm_route_get(g, old->family, old->dst, old->oif_hint,
+	    old->gw_hint, iif);
 	if (rt == NULL)
 		return (-1);
 	*rtp = rt;
@@ -540,7 +541,7 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 	 */
 	if (conn->orig_route == NULL)
 		conn->orig_route = cmm_route_get(g, conn->af,
-		    conn->rep_saddr, conn->rt_ifindex, 0);
+		    conn->rep_saddr, conn->rt_ifindex, conn->rt_gw, 0);
 	if (conn->orig_route == NULL) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "conn: no route for original direction");
@@ -560,7 +561,7 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 	 */
 	if (conn->rep_route == NULL)
 		conn->rep_route = cmm_route_get(g, conn->af,
-		    conn->orig_saddr, conn->rt_ifindex_rep, 0);
+		    conn->orig_saddr, conn->rt_ifindex_rep, conn->rt_gw_rep, 0);
 	if (conn->rep_route == NULL) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "conn: no route for reply direction");
@@ -1077,6 +1078,81 @@ pfn_event_eligible(const struct pfn_event *ev)
 }
 
 /*
+ * Take the interface and gateway pf's route-to/reply-to picked for one
+ * of the flow's states.  Returns -1 if the flow has to stay in software:
+ * dup-to, a kernel without the lookup, or a gateway CDX can't use.
+ */
+static int
+conn_note_route(struct cmm_global *g, struct cmm_conn *conn,
+    const struct pfn_event *ev)
+{
+	static const uint8_t zero[16];
+	struct pfn_state_rt srt;
+	struct cmm_route **rtp;
+	uint8_t *gw;
+	int *oif, alen;
+
+	if (ev->rt_ifindex == 0)
+		return (0);
+
+	memset(&srt, 0, sizeof(srt));
+	srt.id = ev->id;
+	srt.creatorid = ev->creatorid;
+	if (ioctl(g->pfnotify_fd, PFN_IOC_GET_STATE_RT, &srt) < 0) {
+		cmm_print(CMM_LOG_DEBUG,
+		    "conn: proto=%u route-to lookup failed (%s), "
+		    "not offloading", conn->proto, strerror(errno));
+		return (-1);
+	}
+
+	/* route-to sends the state's own direction, the one that opened
+	 * the flow; reply-to sends the replies. */
+	if (srt.rt == PF_ROUTETO) {
+		oif = &conn->rt_ifindex;
+		gw = conn->rt_gw;
+		rtp = &conn->orig_route;
+	} else if (srt.rt == PF_REPLYTO) {
+		oif = &conn->rt_ifindex_rep;
+		gw = conn->rt_gw_rep;
+		rtp = &conn->rep_route;
+	} else {
+		cmm_print(CMM_LOG_DEBUG,
+		    "conn: proto=%u pf route type %u, not offloading",
+		    conn->proto, srt.rt);
+		return (-1);
+	}
+
+	alen = (conn->af == AF_INET) ? 4 : 16;
+	if (srt.ifindex == 0 || srt.af != conn->af ||
+	    memcmp(srt.addr, zero, alen) == 0) {
+		cmm_print(CMM_LOG_DEBUG,
+		    "conn: proto=%u route-to without a usable gateway, "
+		    "not offloading", conn->proto);
+		return (-1);
+	}
+
+	if (*oif == (int)srt.ifindex && memcmp(gw, srt.addr, alen) == 0)
+		return (0);
+	if (*oif != 0) {
+		cmm_print(CMM_LOG_DEBUG,
+		    "conn: proto=%u states disagree on route-to, "
+		    "not offloading", conn->proto);
+		return (-1);
+	}
+
+	*oif = srt.ifindex;
+	memcpy(gw, srt.addr, alen);
+
+	/* A route picked before this state arrived went the normal way. */
+	if (*rtp != NULL) {
+		conn_offload_stop(g, conn, 1);
+		cmm_route_put(*rtp);
+		*rtp = NULL;
+	}
+	return (0);
+}
+
+/*
  * Handle a READY event (state became offload-ready).
  * Creates or updates cmm_conn and attempts offload.
  */
@@ -1150,6 +1226,11 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 				conn_offload_stop(g, conn, 1);
 				conn->flags |= CONN_F_CLOSING;
 			}
+
+			if (conn_note_route(g, conn, ev) < 0) {
+				conn_offload_stop(g, conn, 1);
+				conn->flags |= CONN_F_NO_OFFLOAD;
+			}
 		}
 
 		if (conn->flags & (CONN_F_CLOSING | CONN_F_NO_OFFLOAD))
@@ -1181,9 +1262,8 @@ handle_pf_ready(struct cmm_global *g, const struct pfn_event *ev)
 	conn->pf_creatorid = ev->creatorid;
 	conn->pf_direction = ev->direction;
 	strlcpy(conn->ifname, ev->ifname, sizeof(conn->ifname));
-	conn->rt_ifindex = ev->rt_ifindex;
-	/* rt_ifindex_rep stays 0 (calloc) - the reply path resolves via
-	 * the normal FIB, not this connection's outbound route-to hint. */
+	if (conn_note_route(g, conn, ev) < 0)
+		no_offload = 1;
 	conn->hash_entry.next = NULL;
 	conn->hash_entry.prev = NULL;
 

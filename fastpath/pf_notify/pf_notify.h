@@ -137,4 +137,23 @@ struct pfn_pin_update {
 
 #define PFN_IOC_SET_PIN		_IOWR('N', 2, struct pfn_pin_update)
 
+/* --- Route-to/reply-to lookup (userspace -> kernel via ioctl) --- */
+
+/*
+ * The interface and gateway pf's route-to/reply-to picked for a state,
+ * so CMM can send the offloaded flow the same way.
+ */
+struct pfn_state_rt {
+	uint64_t	id;		/* PF state ID */
+	uint32_t	creatorid;	/* PF state creator ID */
+	uint32_t	ifindex;	/* out: egress interface, 0 = none */
+	uint8_t		rt;		/* out: PF_ROUTETO/PF_REPLYTO/PF_DUPTO,
+					 * 0 = pf routes it normally */
+	uint8_t		af;		/* out: gateway address family */
+	uint8_t		pad[6];
+	uint8_t		addr[16];	/* out: gateway address */
+};
+
+#define PFN_IOC_GET_STATE_RT	_IOWR('N', 3, struct pfn_state_rt)
+
 #endif /* PF_NOTIFY_H */
