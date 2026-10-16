@@ -88,13 +88,14 @@ struct cmm_conn {
 	/* Offload state */
 	int			flags;
 
-	/* pf route-to/reply-to egress override, per direction - 0 means
-	 * no override, resolve the route normally. orig comes from the
-	 * state that created this conn; rep comes from the NAT companion
-	 * state when one exists, since that's a different pf state with
-	 * its own independent route-to decision. */
+	/* pf route-to/reply-to interface and gateway, per direction - 0
+	 * means no override, resolve the route normally.  route-to steers
+	 * the original direction and reply-to the replies, whichever of the
+	 * flow's two states carries it. */
 	int			rt_ifindex;
 	int			rt_ifindex_rep;
+	uint8_t			rt_gw[16];
+	uint8_t			rt_gw_rep[16];
 
 	/* Routes for each direction */
 	struct cmm_route	*orig_route;
