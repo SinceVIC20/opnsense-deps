@@ -520,6 +520,19 @@ remove_leftovers()
 		[ -z "$(pkg query %rn ${P})" ] || continue
 		pkg delete -qy ${P} > /dev/null 2>&1 || return 0
 	done
+
+	# Releases before 26.7.7_3 shipped newer kea and flock than OPNsense's,
+	# and pkg never moves back by itself. Skip kea while it is running.
+	[ "$(/usr/local/sbin/opnsense-version -a)" = "26.7" ] || return 0
+	for P in kea flock; do
+		V=$(pkg query %v ${P} 2> /dev/null) || continue
+		R=$(pkg rquery -r OPNsense %v ${P} 2> /dev/null) || continue
+		[ -n "${R}" ] && [ "$(pkg version -t ${V} ${R})" = ">" ] || continue
+		[ ${P} = kea ] && pgrep -q 'kea-' && continue
+		# Hold OPNsense's firmware lock so a GUI update can't start meanwhile.
+		/usr/local/bin/flock -n /tmp/pkg_upgrade.progress \
+		    pkg install -qfy -r OPNsense ${P} > /dev/null 2>&1 || return 0
+	done
 }
 
 cmd_remove()

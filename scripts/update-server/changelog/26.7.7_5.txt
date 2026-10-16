@@ -1,0 +1,1 @@
+- firmware: kea and flock are moved back to the OPNsense 26.7.7 versions on routers that were updated before 26.7.7_3 (kea is skipped while it is running)
