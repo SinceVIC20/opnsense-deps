@@ -41,6 +41,7 @@
 /usr/local/opnsense/service/conf/actions.d/actions_mono.conf
 /usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/Api/StatusController.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Mono/ACL/ACL.xml
+/usr/local/opnsense/mvc/app/library/OPNsense/System/Status/MonoShaperStatus.php
 /usr/local/opnsense/www/js/widgets/Mono.js
 /usr/local/opnsense/www/js/widgets/Metadata/Mono.xml
 /usr/local/etc/inc/plugins.inc.d/mono.inc
