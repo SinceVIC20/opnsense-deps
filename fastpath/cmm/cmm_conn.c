@@ -569,16 +569,8 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 	}
 
 	/* Re-attempt neighbor resolution if needed */
-	if (conn->orig_route->neigh == NULL)
-		conn->orig_route->neigh = cmm_neigh_get(g,
-		    conn->orig_route->family,
-		    conn->orig_route->gw,
-		    conn->orig_route->oif_index);
-	if (conn->rep_route->neigh == NULL)
-		conn->rep_route->neigh = cmm_neigh_get(g,
-		    conn->rep_route->family,
-		    conn->rep_route->gw,
-		    conn->rep_route->oif_index);
+	cmm_route_refresh_neigh(g, conn->orig_route);
+	cmm_route_refresh_neigh(g, conn->rep_route);
 
 	/* Both routes need resolved neighbors */
 	if (conn->orig_route->neigh == NULL ||
@@ -1422,10 +1414,6 @@ cmm_conn_retry_rejected(struct cmm_global *g)
 	int i;
 	unsigned int retried = 0;
 
-	/* Catch gateway MAC changes before retrying offload, so anything
-	 * just invalidated re-offloads in this same pass. */
-	cmm_route_check_neigh_changes(g);
-
 	for (i = 0; i < CONN_HASH_SIZE; i++) {
 		for (pos = list_first(&conn_hash[i]);
 		    pos != &conn_hash[i]; pos = list_next(pos)) {
@@ -1477,8 +1465,10 @@ cmm_conn_maintenance(struct cmm_global *g)
 	unsigned int retried;
 
 	/* Catch gateway MAC changes before retrying offload, so anything
-	 * just invalidated re-offloads in this same pass. */
-	cmm_route_check_neigh_changes(g);
+	 * just invalidated re-offloads in this same pass. Kernel neighbor
+	 * events do this as it happens; the poll is the backstop. */
+	if (cmm_neigh_poll_due())
+		cmm_route_check_neigh_changes(g);
 
 	/* Catch laggproto changes with no triggering event (see
 	 * cmm_lagg_recheck_all()'s comment) before retrying offload, same
@@ -1647,19 +1637,55 @@ conn_flow_stat(struct cmm_global *g, const struct cmm_conn *conn, int reply,
 	return (0);
 }
 
+/* Connections younger than this are still being set up, not on the CPU. */
+#define CONN_NEW_S	10
+
 /*
- * Save the tracked and offloaded counts for the dashboard widget.
- * Written to a temp file and renamed, so a reader never sees half a line.
+ * Save the connection counts for the dashboard widget, split by why a
+ * connection is not in hardware. Written to a temp file and renamed, so
+ * a reader never sees half a line.
  */
 static void
 conn_write_counts(void)
 {
+	unsigned int offloaded = 0, new = 0, closing = 0, idle = 0;
+	unsigned int retry = 0, kept = 0, other = 0;
+	struct cmm_conn *conn;
+	struct list_head *pos;
+	time_t now;
 	FILE *f;
+	int i;
+
+	now = conn_now();
+	for (i = 0; i < CONN_HASH_SIZE; i++) {
+		for (pos = list_first(&conn_hash[i]); pos != &conn_hash[i];
+		    pos = list_next(pos)) {
+			conn = container_of(pos, struct cmm_conn, hash_entry);
+			if (conn->flags & CONN_F_OFFLOADED)
+				offloaded++;
+			else if (conn->flags & CONN_F_CLOSING)
+				closing++;
+			else if (conn->flags & CONN_F_IDLE)
+				idle++;
+			else if (conn->flags & CONN_F_NO_OFFLOAD)
+				kept++;
+			else if (now - conn->created < CONN_NEW_S)
+				new++;
+			else if (conn->flags & CONN_F_CT_FAILED)
+				retry++;
+			else
+				other++;
+		}
+	}
 
 	f = fopen(CMM_CONN_FILE ".tmp", "w");
 	if (f == NULL)
 		return;
-	fprintf(f, "%u %u\n", conn_count, conn_offloaded);
+	fprintf(f, "tracked %u offloaded %u new %u closing %u idle %u "
+	    "retry %u kept %u other %u neigh_events %u neigh_updates %u "
+	    "neigh_polls %u\n", conn_count, offloaded, new, closing, idle,
+	    retry, kept, other, cmm_neigh_nevents, cmm_neigh_nupdates,
+	    cmm_neigh_npolls);
 	if (fclose(f) != 0 || rename(CMM_CONN_FILE ".tmp", CMM_CONN_FILE) != 0)
 		unlink(CMM_CONN_FILE ".tmp");
 }
