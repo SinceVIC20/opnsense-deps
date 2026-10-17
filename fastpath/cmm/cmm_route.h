@@ -73,6 +73,12 @@ void cmm_route_invalidate_by_neigh(struct cmm_global *g,
 /* Poll for gateway MAC changes and invalidate affected routes */
 void cmm_route_check_neigh_changes(struct cmm_global *g);
 
+/* Apply pending kernel neighbor events; 1 if offloads should be retried */
+int cmm_route_neigh_events(struct cmm_global *g);
+
+/* Resolve a route's neighbor again if it is missing or not resolved */
+void cmm_route_refresh_neigh(struct cmm_global *g, struct cmm_route *rt);
+
 /* Allocate a new unique route ID */
 uint32_t cmm_route_alloc_id(struct cmm_global *g);
 

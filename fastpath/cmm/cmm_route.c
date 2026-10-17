@@ -477,11 +477,35 @@ cmm_route_invalidate_by_neigh(struct cmm_global *g, struct cmm_neigh *neigh)
 		    count);
 }
 
+/*
+ * Resolve the route's neighbor again if it is missing or no longer
+ * resolved. Without this a stale neighbor kept every flow to that
+ * device on the CPU until a route event or a cmm restart.
+ */
+void
+cmm_route_refresh_neigh(struct cmm_global *g, struct cmm_route *rt)
+{
+	if (rt->neigh != NULL && rt->neigh->state != NEIGH_RESOLVED) {
+		cmm_neigh_put(rt->neigh);
+		rt->neigh = NULL;
+	}
+	if (rt->neigh == NULL)
+		rt->neigh = cmm_neigh_get(g, rt->family, rt->gw,
+		    rt->oif_index);
+}
+
 /* cmm_neigh_recheck_all() callback: fires per neighbor whose MAC changed */
 static void
 route_on_neigh_changed(struct cmm_neigh *neigh, void *arg)
 {
 	cmm_route_invalidate_by_neigh((struct cmm_global *)arg, neigh);
+}
+
+/* Apply pending kernel neighbor events. Returns 1 if offloads should be retried. */
+int
+cmm_route_neigh_events(struct cmm_global *g)
+{
+	return (cmm_neigh_events_dispatch(route_on_neigh_changed, g));
 }
 
 /*

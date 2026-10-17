@@ -254,16 +254,8 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 	}
 
 	/* Re-attempt neighbor resolution if needed */
-	if (conn->orig_route->neigh == NULL)
-		conn->orig_route->neigh = cmm_neigh_get(g,
-		    conn->orig_route->family,
-		    conn->orig_route->gw,
-		    conn->orig_route->oif_index);
-	if (conn->rep_route->neigh == NULL)
-		conn->rep_route->neigh = cmm_neigh_get(g,
-		    conn->rep_route->family,
-		    conn->rep_route->gw,
-		    conn->rep_route->oif_index);
+	cmm_route_refresh_neigh(g, conn->orig_route);
+	cmm_route_refresh_neigh(g, conn->rep_route);
 
 	/* Both routes need resolved neighbors */
 	if (conn->orig_route->neigh == NULL ||
@@ -918,10 +910,6 @@ cmm_conn_retry_rejected(struct cmm_global *g)
 	int i;
 	unsigned int retried = 0;
 
-	/* Catch gateway MAC changes before retrying offload, so anything
-	 * just invalidated re-offloads in this same pass. */
-	cmm_route_check_neigh_changes(g);
-
 	for (i = 0; i < CONN_HASH_SIZE; i++) {
 		for (pos = list_first(&conn_hash[i]);
 		    pos != &conn_hash[i]; pos = list_next(pos)) {
@@ -971,8 +959,10 @@ cmm_conn_maintenance(struct cmm_global *g)
 	unsigned int retried;
 
 	/* Catch gateway MAC changes before retrying offload, so anything
-	 * just invalidated re-offloads in this same pass. */
-	cmm_route_check_neigh_changes(g);
+	 * just invalidated re-offloads in this same pass. Kernel neighbor
+	 * events do this as it happens; the poll is the backstop. */
+	if (cmm_neigh_poll_due())
+		cmm_route_check_neigh_changes(g);
 
 	/* Catch laggproto changes with no triggering event (see
 	 * cmm_lagg_recheck_all()'s comment) before retrying offload, same

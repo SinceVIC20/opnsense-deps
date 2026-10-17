@@ -59,6 +59,7 @@ struct cmm_global {
 	int		ctrl_clients[4];/* control socket clients */
 	int		autobridge_fd;	/* /dev/autobridge (L2 bridge) */
 	int		pfnotify_fd;	/* /dev/pfnotify (state events) */
+	int		neigh_fd;	/* netlink neighbor events */
 
 	/* Configuration */
 	int		debug_level;
