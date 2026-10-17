@@ -1,0 +1,4 @@
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It fixes devices getting stuck with all their traffic on the CPU, which also caused HC errors.
+
+- offload: about 20 minutes after a device's traffic was fully offloaded, that device could get stuck with all its traffic on the CPU until cmm was restarted or the router rebooted, and the burst of removals that followed could show an HC error. The router now learns address changes from the system as they happen, and an expired address entry no longer moves a device off the hardware.
+- dashboard: the Connections gauge counts only connections that are really on the CPU, leaving out new, closing and idle ones, and updates every 5 seconds. The Mono Gateway widget no longer has a corner link.
