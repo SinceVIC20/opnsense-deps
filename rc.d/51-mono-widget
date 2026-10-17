@@ -2,21 +2,29 @@
 <?php
 
 /*
- * Add the Mono Gateway widget to every user's dashboard, once. Users who
- * remove it afterwards keep it removed. "dry" only shows what would change.
+ * Add the Mono Gateway widgets to every user's dashboard, once each. Users
+ * who remove one afterwards keep it removed. "dry" only shows what would change.
  */
 
 require_once('config.inc');
 
 use OPNsense\Core\Config;
 
-$marker = '/var/db/mono-widget-added';
 $dry = ($argv[1] ?? '') == 'dry';
+$widgets_dir = '/usr/local/opnsense/www/js/widgets';
 
-if (file_exists($marker) && !$dry) {
-    exit(0);
+/* id => file, marker; each widget is added once, on its own marker */
+$widgets = [
+    'mono' => ['Mono.js', '/var/db/mono-widget-added'],
+    'monoconnections' => ['MonoConnections.js', '/var/db/mono-connections-widget-added'],
+];
+
+foreach ($widgets as $id => [$file, $marker]) {
+    if ((file_exists($marker) && !$dry) || !file_exists("{$widgets_dir}/{$file}")) {
+        unset($widgets[$id]);
+    }
 }
-if (!file_exists('/usr/local/opnsense/www/js/widgets/Mono.js')) {
+if (empty($widgets)) {
     exit(0);
 }
 
@@ -38,6 +46,143 @@ $default = [
     ]
 ];
 
+/*
+ * Put the connections gauge in the same row right after Disk (or Memory),
+ * so the dashboard always packs the three gauges together. Widgets to its
+ * right move over one column and, when the row is full, the last wide one
+ * gives up a column. Without Memory or Disk it goes in the first free spot.
+ */
+function place_connections(array $list)
+{
+    $after = null;
+    foreach (['memory', 'disk'] as $id) {
+        foreach ($list as $w) {
+            if ($w['id'] == $id && isset($w['x'], $w['y'])) {
+                $after = $w;
+            }
+        }
+    }
+    if ($after === null) {
+        $list[] = ['id' => 'monoconnections'];
+        return $list;
+    }
+
+    $x = (int)$after['x'] + 1;
+    $y = (int)$after['y'];
+    $row = [];
+    foreach ($list as $i => $w) {
+        if (isset($w['x'], $w['y']) && (int)$w['y'] == $y && (int)$w['x'] >= $x) {
+            $list[$i]['x'] = (int)$w['x'] + 1;
+            $row[] = $i;
+        }
+    }
+
+    $end = 0;
+    foreach ($row as $i) {
+        $end = max($end, (int)$list[$i]['x'] + (int)($list[$i]['w'] ?? 1));
+    }
+    if ($end > 12) {
+        usort($row, fn($a, $b) => (int)$list[$b]['x'] - (int)$list[$a]['x']);
+        foreach ($row as $i) {
+            if ((int)($list[$i]['w'] ?? 1) > 2) {
+                $list[$i]['w'] = (int)$list[$i]['w'] - 1;
+                break;
+            }
+        }
+    }
+
+    $list[] = ['id' => 'monoconnections', 'x' => $x, 'y' => $y, 'w' => 1];
+    return $list;
+}
+
+/*
+ * Below 900 and 500 pixels the dashboard switches to 3 and 1 columns and,
+ * without a saved layout for that width, scatters the widgets. Write one in
+ * the wide layout's order. In 3 columns the gauges stack on the right next
+ * to the first two widgets, then the rest go full width; in 1 column it is
+ * the same order top to bottom.
+ */
+function narrow_layout(array $list, int $columns)
+{
+    $gauges = ['memory', 'disk', 'monoconnections'];
+    usort($list, function ($a, $b) {
+        $ka = isset($a['x'], $a['y']) ? [(int)$a['y'], (int)$a['x']] : [PHP_INT_MAX, 0];
+        $kb = isset($b['x'], $b['y']) ? [(int)$b['y'], (int)$b['x']] : [PHP_INT_MAX, 0];
+        return $ka <=> $kb;
+    });
+    $layout = [];
+    if ($columns == 1) {
+        foreach ($list as $i => $w) {
+            $layout[$w['id']] = ['id' => $w['id'], 'x' => 0, 'y' => $i, 'w' => 1];
+        }
+        return $layout;
+    }
+
+    $row = 0;
+    foreach ($list as $w) {
+        if (in_array($w['id'], $gauges)) {
+            $layout[$w['id']] = ['id' => $w['id'], 'x' => $columns - 1, 'y' => $row++, 'w' => 1];
+        }
+    }
+    $left = 0;
+    $next = max($row, 2);
+    foreach ($list as $w) {
+        if (in_array($w['id'], $gauges)) {
+            continue;
+        }
+        if ($left < 2 && $row > 0) {
+            $layout[$w['id']] = ['id' => $w['id'], 'x' => 0, 'y' => $left++, 'w' => $columns - 1];
+        } else {
+            $layout[$w['id']] = ['id' => $w['id'], 'x' => 0, 'y' => $next++, 'w' => $columns];
+        }
+    }
+    return $layout;
+}
+
+/*
+ * Add the gauge to a layout someone saved: right under Disk, as tall as
+ * Disk, with everything below it in that column moved down to make room.
+ */
+function insert_below_disk(array $layout)
+{
+    if (!isset($layout['disk']['x'], $layout['disk']['y'])) {
+        return $layout;
+    }
+    $disk = $layout['disk'];
+    $x = (int)$disk['x'];
+    $y = (int)$disk['y'] + (int)($disk['h'] ?? 1);
+    $h = (int)($disk['h'] ?? 1);
+    foreach ($layout as $id => $w) {
+        $left = (int)($w['x'] ?? 0);
+        $right = $left + (int)($w['w'] ?? 1) - 1;
+        if ((int)($w['y'] ?? 0) >= $y && $left <= $x && $right >= $x) {
+            $layout[$id]['y'] = (int)$w['y'] + $h;
+        }
+    }
+    $layout['monoconnections'] = ['id' => 'monoconnections', 'x' => $x, 'y' => $y, 'w' => 1, 'h' => $h];
+    return $layout;
+}
+
+/* Put the gauge into the wide list and into a layout for every width. */
+function add_connections(array $dashboard)
+{
+    $dashboard['widgets'] = place_connections($dashboard['widgets']);
+    $layouts = $dashboard['layouts'] ?? [];
+    foreach ([12, 3, 1] as $columns) {
+        if (!empty($layouts[$columns])) {
+            if ($columns == 12) {
+                $layouts[12] = array_column(place_connections(array_values($layouts[12])), null, 'id');
+            } else {
+                $layouts[$columns] = insert_below_disk($layouts[$columns]);
+            }
+        } elseif ($columns != 12) {
+            $layouts[$columns] = narrow_layout($dashboard['widgets'], $columns);
+        }
+    }
+    $dashboard['layouts'] = $layouts;
+    return $dashboard;
+}
+
 $mdl = new OPNsense\Auth\User();
 $changed = false;
 
@@ -47,14 +192,22 @@ foreach ($mdl->user->iterateItems() as $node) {
     if (empty($dashboard['widgets'])) {
         $dashboard = $default;
     }
-    if (in_array('mono', array_column($dashboard['widgets'], 'id'))) {
-        echo "{$name}: already has the widget\n";
-        continue;
+    $added = false;
+    foreach (array_keys($widgets) as $id) {
+        if (in_array($id, array_column($dashboard['widgets'], 'id'))) {
+            echo "{$name}: already has {$id}\n";
+            continue;
+        }
+        if ($id == 'monoconnections') {
+            $dashboard = add_connections($dashboard);
+        } else {
+            /* no position given, so the dashboard puts it in the first free spot */
+            $dashboard['widgets'][] = ['id' => $id, 'w' => 2];
+        }
+        echo "{$name}: adding {$id}\n";
+        $added = true;
     }
-    /* no position given, so the dashboard puts it in the first free spot */
-    $dashboard['widgets'][] = ['id' => 'mono', 'w' => 2];
-    echo "{$name}: adding the widget\n";
-    if (!$dry) {
+    if ($added && !$dry) {
         $node->dashboard->serialize($dashboard);
         $changed = true;
     }
@@ -65,5 +218,7 @@ if ($changed) {
     Config::getInstance()->save();
 }
 if (!$dry) {
-    touch($marker);
+    foreach ($widgets as [$file, $marker]) {
+        touch($marker);
+    }
 }

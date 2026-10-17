@@ -35,17 +35,98 @@ def cmm_running():
         return False
 
 
+def local_addresses():
+    """The router's own addresses."""
+    found = set()
+    for line in run(['/sbin/ifconfig', '-a']).splitlines():
+        words = line.split()
+        if len(words) > 1 and words[0] in ('inet', 'inet6'):
+            found.add(words[1].split('%')[0])
+    return found
+
+
+def host_address(host):
+    """Address without the port: 1.2.3.4:443 or 2001:db8::1[443]."""
+    return host.split('[')[0] if '[' in host else host.rsplit(':', 1)[0]
+
+
+def seconds(text):
+    """pfctl's [h:]mm:ss as seconds."""
+    total = 0
+    for part in text.split(':'):
+        total = total * 60 + int(part)
+    return total
+
+
+def pf_active_connections():
+    """
+    TCP and UDP connections routed through the firewall that carried traffic
+    in the last 5 minutes. A routed connection has a state on each side, so
+    the pair is counted once. Connections to the router itself are left out.
+    """
+    timeouts = {}
+    for line in run(['/sbin/pfctl', '-st']).splitlines():
+        words = line.split()
+        if len(words) == 2 and words[1].endswith('s'):
+            timeouts[words[0]] = int(words[1][:-1])
+    local = local_addresses()
+    seen = set()
+    hosts, proto, timeout = None, None, 0
+    for line in run(['/sbin/pfctl', '-ss', '-vv']).splitlines():
+        parts = line.split()
+        if line.startswith('all '):
+            hosts = None
+            states = parts[-1].split(':')
+            if parts[1] == 'tcp' and states == ['ESTABLISHED', 'ESTABLISHED']:
+                timeout = timeouts.get('tcp.established', 86400)
+            elif parts[1] == 'udp' and 'NO_TRAFFIC' not in states:
+                timeout = timeouts.get('udp.multiple', 60)
+            else:
+                continue
+            # "(address)" is the address before NAT, which the other side's state uses
+            hosts = []
+            for word in parts[2:-1]:
+                if word in ('->', '<-'):
+                    continue
+                if word.startswith('(') and hosts:
+                    hosts[-1] = word.strip('()')
+                else:
+                    hosts.append(word)
+            proto = parts[1]
+        elif hosts and len(hosts) == 2 and 'expires in' in line:
+            idle = timeout - seconds(line.split('expires in ')[1].split(',')[0])
+            if idle < 300 and not any(host_address(h) in local for h in hosts):
+                seen.add((proto, min(hosts), max(hosts)))
+            hosts = None
+    return len(seen)
+
+
+def cmm_cpu_connections():
+    """Connections cmm tracks that are not in hardware."""
+    try:
+        with open('/var/run/cmm.conn') as f:
+            tracked, offloaded = (int(x) for x in f.read().split())
+    except (OSError, ValueError):
+        return 0
+    return max(tracked - offloaded, 0)
+
+
 def offload():
-    """on/off/unavailable plus the number of connections in hardware."""
+    """
+    on/off/unavailable plus the number of connections in hardware and on the
+    CPU. With offload on, cmm knows which connections stay on the CPU; without
+    it, every active routed connection does.
+    """
     count = run(['/sbin/sysctl', '-n', 'dev.cdx.stats.active_connections'])
     if count == '':
-        return 'unavailable', 0
+        return 'unavailable', 0, pf_active_connections()
     if not cmm_running():
-        return 'off', 0
+        return 'off', 0, pf_active_connections()
     try:
-        return 'on', int(count)
+        hardware = int(count)
     except ValueError:
-        return 'on', 0
+        hardware = 0
+    return 'on', hardware, cmm_cpu_connections()
 
 
 def update_server():
@@ -64,13 +145,14 @@ def update_server():
 
 if __name__ == '__main__':
     version, commit = release()
-    state, connections = offload()
+    state, connections, cpu = offload()
     server, server_url = update_server()
     print(json.dumps({
         'release': version,
         'commit': commit,
         'offload': state,
         'connections': connections,
+        'cpu_connections': cpu,
         'server': server,
         'server_url': server_url,
     }))

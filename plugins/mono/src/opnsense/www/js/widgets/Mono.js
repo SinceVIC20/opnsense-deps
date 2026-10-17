@@ -53,7 +53,7 @@ export default class Mono extends BaseTableWidget {
         let offload;
         if (data.offload === 'on') {
             offload = `<i class="fa fa-check text-success"></i> <a href="/ui/core/service">` +
-                `${this.translations.on}, ${data.connections} ${this.translations.connections}</a>`;
+                `${this.translations.on}</a>`;
         } else if (data.offload === 'off') {
             offload = `<i class="fa fa-times text-danger"></i> ${this.translations.off} &nbsp; ` +
                 `<a href="/ui/core/service">${this.translations.start}</a>`;

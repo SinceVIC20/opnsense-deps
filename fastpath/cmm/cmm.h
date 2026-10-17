@@ -44,6 +44,7 @@
 #define CMM_STATS_SYNC_MS	5000	/* CDX flow counter sync interval */
 #define CMM_MAINT_MS		30000	/* maintenance timer (retry + route GC) */
 #define CMM_PID_FILE		"/var/run/cmm.pid"
+#define CMM_CONN_FILE		"/var/run/cmm.conn"	/* tracked/offloaded counts */
 
 struct cmm_global {
 	/* FCI handles */

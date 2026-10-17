@@ -11,8 +11,7 @@
             <notes>release notes</notes>
             <offload>Hardware offload</offload>
             <on>On</on>
-            <connections>connections in hardware</connections>
-            <off>Off, the cmm service is stopped</off>
+            <off>Off</off>
             <start>Turn it on here</start>
             <unavailable>Not available, the offload driver is not loaded</unavailable>
             <reboot>restart the router</reboot>
@@ -21,4 +20,17 @@
             <unknown>Unknown</unknown>
         </translations>
     </mono>
+    <monoconnections>
+        <filename>MonoConnections.js</filename>
+        <link>/ui/core/service</link>
+        <endpoints>
+            <endpoint>/api/mono/status/info</endpoint>
+        </endpoints>
+        <translations>
+            <title>Connections</title>
+            <hardware>Hardware</hardware>
+            <hw>HW</hw>
+            <cpu>CPU</cpu>
+        </translations>
+    </monoconnections>
 </metadata>

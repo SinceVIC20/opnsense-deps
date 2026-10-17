@@ -712,6 +712,7 @@ cmm_conn_fini(struct cmm_global *g)
 			pos = tmp;
 		}
 	}
+	unlink(CMM_CONN_FILE);
 }
 
 void
@@ -1646,6 +1647,23 @@ conn_flow_stat(struct cmm_global *g, const struct cmm_conn *conn, int reply,
 	return (0);
 }
 
+/*
+ * Save the tracked and offloaded counts for the dashboard widget.
+ * Written to a temp file and renamed, so a reader never sees half a line.
+ */
+static void
+conn_write_counts(void)
+{
+	FILE *f;
+
+	f = fopen(CMM_CONN_FILE ".tmp", "w");
+	if (f == NULL)
+		return;
+	fprintf(f, "%u %u\n", conn_count, conn_offloaded);
+	if (fclose(f) != 0 || rename(CMM_CONN_FILE ".tmp", CMM_CONN_FILE) != 0)
+		unlink(CMM_CONN_FILE ".tmp");
+}
+
 void
 cmm_conn_stats_sync(struct cmm_global *g)
 {
@@ -1766,6 +1784,7 @@ done_scan:
 		stats_orphans = 0;
 	}
 
+	conn_write_counts();
 	cmm_print(CMM_LOG_TRACE, "stats sync done");
 }
 
