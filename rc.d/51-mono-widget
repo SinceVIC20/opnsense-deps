@@ -24,9 +24,6 @@ foreach ($widgets as $id => [$file, $marker]) {
         unset($widgets[$id]);
     }
 }
-if (empty($widgets)) {
-    exit(0);
-}
 
 /* OPNsense 26.7 default dashboard, used for users who never saved one */
 $default = [
@@ -96,6 +93,43 @@ function place_connections(array $list)
 }
 
 /*
+ * Put the Mono Gateway widget right under System Information, as wide as it,
+ * moving whatever sat below System Information down a row. Without System
+ * Information it goes in the first free spot.
+ */
+function place_mono(array $list)
+{
+    $list = array_values(array_filter($list, fn($w) => $w['id'] != 'mono'));
+    $info = null;
+    foreach ($list as $w) {
+        if ($w['id'] == 'systeminformation' && isset($w['x'], $w['y'])) {
+            $info = $w;
+        }
+    }
+    if ($info === null) {
+        $list[] = ['id' => 'mono', 'w' => 2];
+        return $list;
+    }
+
+    $left = (int)$info['x'];
+    $right = $left + (int)($info['w'] ?? 1) - 1;
+    $y = (int)$info['y'] + 1;
+    foreach ($list as &$w) {
+        if (!isset($w['x'], $w['y'])) {
+            continue;
+        }
+        $wl = (int)$w['x'];
+        $wr = $wl + (int)($w['w'] ?? 1) - 1;
+        if ((int)$w['y'] >= $y && $wl <= $right && $wr >= $left) {
+            $w['y'] = (int)$w['y'] + 1;
+        }
+    }
+    unset($w);
+    $list[] = ['id' => 'mono', 'x' => $left, 'y' => $y, 'w' => $right - $left + 1];
+    return $list;
+}
+
+/*
  * Below 900 and 500 pixels the dashboard switches to 3 and 1 columns and,
  * without a saved layout for that width, scatters the widgets. Write one in
  * the wide layout's order. In 3 columns the gauges stack on the right next
@@ -110,6 +144,13 @@ function narrow_layout(array $list, int $columns)
         $kb = isset($b['x'], $b['y']) ? [(int)$b['y'], (int)$b['x']] : [PHP_INT_MAX, 0];
         return $ka <=> $kb;
     });
+    // Mono Gateway stays right after System Information.
+    $mono = array_values(array_filter($list, fn($w) => $w['id'] == 'mono'));
+    if ($mono) {
+        $list = array_values(array_filter($list, fn($w) => $w['id'] != 'mono'));
+        $at = array_search('systeminformation', array_column($list, 'id'));
+        array_splice($list, $at === false ? count($list) : $at + 1, 0, $mono);
+    }
     $layout = [];
     if ($columns == 1) {
         foreach ($list as $i => $w) {
@@ -201,11 +242,29 @@ foreach ($mdl->user->iterateItems() as $node) {
         if ($id == 'monoconnections') {
             $dashboard = add_connections($dashboard);
         } else {
-            /* no position given, so the dashboard puts it in the first free spot */
-            $dashboard['widgets'][] = ['id' => $id, 'w' => 2];
+            $dashboard['widgets'] = place_mono($dashboard['widgets']);
         }
         echo "{$name}: adding {$id}\n";
         $added = true;
+    }
+    /*
+     * 26.7.7_6 added the Mono Gateway widget without a position. Until the
+     * user saves the dashboard it still has none, and any narrow layouts are
+     * the ones written here, so both can be redone with it next to System
+     * Information.
+     */
+    foreach ($dashboard['widgets'] as $w) {
+        if ($w['id'] == 'mono' && !isset($w['x'], $w['y'])) {
+            $dashboard['widgets'] = place_mono($dashboard['widgets']);
+            foreach ([3, 1] as $columns) {
+                if (!empty($dashboard['layouts'][$columns])) {
+                    $dashboard['layouts'][$columns] = narrow_layout($dashboard['widgets'], $columns);
+                }
+            }
+            echo "{$name}: moving mono next to systeminformation\n";
+            $added = true;
+            break;
+        }
     }
     if ($added && !$dry) {
         $node->dashboard->serialize($dashboard);

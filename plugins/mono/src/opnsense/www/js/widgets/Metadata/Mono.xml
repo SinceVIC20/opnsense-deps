@@ -22,7 +22,6 @@
     </mono>
     <monoconnections>
         <filename>MonoConnections.js</filename>
-        <link>/ui/core/service</link>
         <endpoints>
             <endpoint>/api/mono/status/info</endpoint>
         </endpoints>
