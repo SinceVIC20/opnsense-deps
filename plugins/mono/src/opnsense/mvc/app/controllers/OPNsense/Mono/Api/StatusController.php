@@ -16,4 +16,14 @@ class StatusController extends ApiControllerBase
         }
         return $data;
     }
+
+    public function connectionsAction()
+    {
+        $backend = new Backend();
+        $data = json_decode($backend->configdRun('mono connections'), true);
+        if (!is_array($data)) {
+            return ['offload' => 'unknown', 'connections' => 0, 'cpu_connections' => 0];
+        }
+        return $data;
+    }
 }

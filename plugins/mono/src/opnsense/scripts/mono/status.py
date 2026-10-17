@@ -7,6 +7,7 @@ Release and offload status for the Mono Gateway dashboard widget.
 import json
 import os
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
@@ -102,13 +103,17 @@ def pf_active_connections():
 
 
 def cmm_cpu_connections():
-    """Connections cmm tracks that are not in hardware."""
+    """
+    Connections cmm keeps on the CPU or could not offload. New ones still
+    being set up, closing ones and ones idle since leaving hardware don't count.
+    """
     try:
         with open('/var/run/cmm.conn') as f:
-            tracked, offloaded = (int(x) for x in f.read().split())
+            words = f.read().split()
+        counts = dict(zip(words[::2], (int(x) for x in words[1::2])))
     except (OSError, ValueError):
         return 0
-    return max(tracked - offloaded, 0)
+    return sum(counts.get(k, 0) for k in ('retry', 'kept', 'other'))
 
 
 def offload():
@@ -144,6 +149,10 @@ def update_server():
 
 
 if __name__ == '__main__':
+    if sys.argv[1:] == ['connections']:
+        state, connections, cpu = offload()
+        print(json.dumps({'offload': state, 'connections': connections, 'cpu_connections': cpu}))
+        sys.exit(0)
     version, commit = release()
     state, connections, cpu = offload()
     server, server_url = update_server()

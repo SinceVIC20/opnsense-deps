@@ -27,7 +27,7 @@
 export default class MonoConnections extends BaseGaugeWidget {
     constructor(config) {
         super(config);
-        this.tickTimeout = 15;
+        this.tickTimeout = 5;
     }
 
     async onMarkupRendered() {
@@ -73,7 +73,7 @@ export default class MonoConnections extends BaseGaugeWidget {
     }
 
     async onWidgetTick() {
-        const data = await this.ajaxCall('/api/mono/status/info');
+        const data = await this.ajaxCall('/api/mono/status/connections');
         if (!data) {
             return;
         }

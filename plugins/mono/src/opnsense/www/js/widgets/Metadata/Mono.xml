@@ -1,7 +1,6 @@
 <metadata>
     <mono>
         <filename>Mono.js</filename>
-        <link>/ui/core/firmware</link>
         <endpoints>
             <endpoint>/api/mono/status/info</endpoint>
         </endpoints>
@@ -23,7 +22,7 @@
     <monoconnections>
         <filename>MonoConnections.js</filename>
         <endpoints>
-            <endpoint>/api/mono/status/info</endpoint>
+            <endpoint>/api/mono/status/connections</endpoint>
         </endpoints>
         <translations>
             <title>Connections</title>

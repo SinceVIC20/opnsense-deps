@@ -37,6 +37,7 @@
 /usr/local/opnsense/www/js/widgets/Hwmon.js
 /usr/local/opnsense/www/js/widgets/Metadata/Hwmon.xml
 @dir /usr/local/opnsense/scripts/mono
+/usr/local/opnsense/scripts/mono/connections.sh
 /usr/local/opnsense/scripts/mono/status.py
 /usr/local/opnsense/service/conf/actions.d/actions_mono.conf
 /usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/Api/StatusController.php
