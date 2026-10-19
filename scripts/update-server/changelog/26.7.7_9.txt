@@ -1,0 +1,8 @@
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It offloads busy one-way UDP traffic, speeds up WireGuard and fixes PPPoE offload after a cmm restart.
+
+- offload: a UDP flow that never gets a reply, such as a one-way stream, is now moved to the hardware once it has sent at least 64 packets at an average of at least 100 packets per second. Before, it stayed on the CPU. Flows from rules with a packet rate or per-source limit stay on the CPU so those limits still apply.
+- WireGuard: encryption uses the processor's optimised ChaCha20-Poly1305 code instead of the generic version.
+- PPPoE: the PPPoE session stayed in the hardware after cmm stopped, and if the session changed before cmm started again, offloaded upload traffic could go out with the old session. cmm now removes the session when it stops and replaces an old one when it starts.
+- logs: IPv6 offload log lines show the addresses and ports.
+- rate limits: the per-port fast-forward rate limit commands now change the port they name instead of always the first 10G port.
+- diagnostics: the port diagnostic output (sysctl dev.dtsec.N.diag=1) also shows pause frames sent and received and why received frames were dropped.
