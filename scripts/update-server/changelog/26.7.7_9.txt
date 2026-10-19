@@ -6,3 +6,5 @@ This release comes from the temporary, unofficial Mono Gateway update server at 
 - logs: IPv6 offload log lines show the addresses and ports.
 - rate limits: the per-port fast-forward rate limit commands now change the port they name instead of always the first 10G port.
 - diagnostics: the port diagnostic output (sysctl dev.dtsec.N.diag=1) also shows pause frames sent and received and why received frames were dropped.
+- offload: after about 65,000 routes, usually 15 to 17 hours of normal use, cmm stopped offloading new flows and kept logging "route deregister failed: 201". The hardware stored route numbers in 16 bits and now keeps the full number.
+- cmm: service cmm start now returns when run over SSH instead of holding the session open.
