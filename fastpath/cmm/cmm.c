@@ -182,9 +182,10 @@ main(int argc, char *argv[])
 		}
 	}
 
-	/* Daemonize unless -f */
+	/* Daemonize unless -f, with stdio on /dev/null so the caller's
+	 * terminal or SSH session isn't held open. */
 	if (!g->foreground) {
-		if (daemon(0, 1) < 0) {
+		if (daemon(0, 0) < 0) {
 			cmm_print(CMM_LOG_ERR, "daemon: %s", strerror(errno));
 			pidfile_remove(pfh);
 			exit(1);
