@@ -410,8 +410,23 @@ cmm_fe_ct6_register(struct cmm_global *g, struct cmm_conn *conn)
 	}
 
 	conn->flags |= CONN_F_OFFLOADED;
-	cmm_print(CMM_LOG_INFO, "fe: ct6 offloaded %s",
-	    conn->proto == IPPROTO_TCP ? "TCP" : "UDP");
+
+	{
+		char os[INET6_ADDRSTRLEN], od[INET6_ADDRSTRLEN];
+		char rs[INET6_ADDRSTRLEN], rd[INET6_ADDRSTRLEN];
+		inet_ntop(AF_INET6, conn->orig_saddr, os, sizeof(os));
+		inet_ntop(AF_INET6, conn->orig_daddr, od, sizeof(od));
+		inet_ntop(AF_INET6, conn->rep_saddr, rs, sizeof(rs));
+		inet_ntop(AF_INET6, conn->rep_daddr, rd, sizeof(rd));
+		cmm_print(CMM_LOG_INFO,
+		    "fe: ct6 offloaded %s orig=[%s]:%u->[%s]:%u "
+		    "reply=[%s]:%u->[%s]:%u",
+		    conn->proto == IPPROTO_TCP ? "TCP" : "UDP",
+		    os, ntohs(conn->orig_sport),
+		    od, ntohs(conn->orig_dport),
+		    rs, ntohs(conn->rep_sport),
+		    rd, ntohs(conn->rep_dport));
+	}
 
 	return (0);
 }
@@ -445,7 +460,17 @@ cmm_fe_ct6_deregister(struct cmm_global *g, struct cmm_conn *conn)
 	    sizeof(cmd), (unsigned short *)&cmd);
 
 	conn->flags &= ~CONN_F_OFFLOADED;
-	cmm_print(CMM_LOG_INFO, "fe: ct6 removed (rc=%d)", rc);
+
+	{
+		char sbuf[INET6_ADDRSTRLEN], dbuf[INET6_ADDRSTRLEN];
+		inet_ntop(AF_INET6, conn->orig_saddr, sbuf, sizeof(sbuf));
+		inet_ntop(AF_INET6, conn->orig_daddr, dbuf, sizeof(dbuf));
+		cmm_print(CMM_LOG_INFO,
+		    "fe: ct6 removed %s [%s]:%u -> [%s]:%u (rc=%d)",
+		    conn->proto == IPPROTO_TCP ? "TCP" : "UDP",
+		    sbuf, ntohs(conn->orig_sport),
+		    dbuf, ntohs(conn->orig_dport), rc);
+	}
 
 	return (rc == 0 ? 0 : -1);
 }
