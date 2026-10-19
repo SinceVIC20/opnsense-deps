@@ -146,6 +146,12 @@ static struct cdev	*pfn_cdev;
  * mutex round-trip that READY/DELETE could otherwise use. */
 static int		pfn_notify_insert;
 
+/* A UDP flow that never gets a reply is offloaded once it has sent this
+ * many packets at this average rate, so short exchanges and slow trickles
+ * (syslog, NTP) stay with PF.  min_pkts 0 = off. */
+static int		pfn_udp_oneway_min_pkts = 64;
+static int		pfn_udp_oneway_min_pps = 100;
+
 /* Statistics */
 static uint64_t		pfn_events_total;
 static uint64_t		pfn_events_dropped;
@@ -224,6 +230,38 @@ pfn_unpin_all(void)
 #endif
 
 /* --- Event construction ------------------------------------------- */
+
+/*
+ * The rule limits packet rate or connections per source.  Offloaded
+ * packets never reach those checks, so a one-way flow stays with PF.
+ */
+static int
+pfn_rule_limits(const struct pf_kstate *s)
+{
+	const struct pf_krule *r = s->rule;
+
+	if (r == NULL)
+		return (0);
+	return (r->pktrate.limit != 0 || r->max_src_conn != 0 ||
+	    r->max_src_states != 0 || r->max_src_nodes != 0);
+}
+
+/* A UDP flow with no reply yet that is busy enough to be worth offloading. */
+static int
+pfn_udp_oneway_ready(const struct pf_kstate *s)
+{
+	int min = pfn_udp_oneway_min_pkts;
+	int pps = pfn_udp_oneway_min_pps;
+	uint64_t age_ms;
+
+	if (min <= 0 || s->src.state == 0 || s->dst.state != 0 ||
+	    s->packets[0] < (uint64_t)min || pfn_rule_limits(s))
+		return (0);
+	if (pps <= 0)
+		return (1);
+	age_ms = pf_get_uptime() - s->creation;
+	return (s->packets[0] * 1000 >= (uint64_t)pps * age_ms);
+}
 
 /*
  * PF has to see every packet of this flow: it rewrites TCP sequence
@@ -324,7 +362,8 @@ pfn_insert_state(struct pf_kstate *s)
  * an existing state.  We only queue a READY event once per state,
  * when the connection first becomes offload-ready:
  *   TCP: both src and dst are ESTABLISHED (and not in FIN states)
- *   UDP: both src and dst have seen traffic (state > 0)
+ *   UDP: both src and dst have seen traffic (state > 0), or a flow
+ *        with no reply has sent udp_oneway_min_pkts packets
  *
  * Context: PF_RULES_RLOCK + PF_STATE_LOCK(s) held, NET_EPOCH.
  * The one-shot pfn_notified[] tracker prevents per-packet flooding.
@@ -358,7 +397,7 @@ pfn_update_state(struct pf_kstate *s)
 		    dst_st < TCPS_FIN_WAIT_1)
 			ready = 1;
 	} else if (proto == IPPROTO_UDP) {
-		if (src_st > 0 && dst_st > 0)
+		if ((src_st > 0 && dst_st > 0) || pfn_udp_oneway_ready(s))
 			ready = 1;
 	}
 
@@ -777,6 +816,16 @@ pfn_sysctl_init(void)
 	    OID_AUTO, "notify_insert", CTLFLAG_RW,
 	    &pfn_notify_insert, 0,
 	    "Queue INSERT events (off by default - TRACE-log only consumer)");
+
+	SYSCTL_ADD_INT(&pfn_sysctl_ctx, SYSCTL_CHILDREN(parent),
+	    OID_AUTO, "udp_oneway_min_pkts", CTLFLAG_RW,
+	    &pfn_udp_oneway_min_pkts, 0,
+	    "Offload a UDP flow with no reply after this many packets (0 = off)");
+
+	SYSCTL_ADD_INT(&pfn_sysctl_ctx, SYSCTL_CHILDREN(parent),
+	    OID_AUTO, "udp_oneway_min_pps", CTLFLAG_RW,
+	    &pfn_udp_oneway_min_pps, 0,
+	    "...and an average of at least this many packets/s (0 = any rate)");
 
 	SYSCTL_ADD_U64(&pfn_sysctl_ctx, SYSCTL_CHILDREN(parent),
 	    OID_AUTO, "events_total", CTLFLAG_RD,

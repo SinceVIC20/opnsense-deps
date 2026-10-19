@@ -1032,10 +1032,16 @@ pfn_event_eligible(const struct pfn_event *ev)
 			return (0);
 	}
 
-	/* UDP: require bidirectional traffic */
+	/* UDP: traffic both ways, or one way if pf_notify found it busy
+	 * enough (udp_oneway_min_pkts).  Both directions are offloaded
+	 * either way, since PF already passes the replies. */
 	if (proto == IPPROTO_UDP) {
-		if (ev->src_state == 0 || ev->dst_state == 0)
+		if (ev->src_state == 0)
 			return (0);
+		if (ev->dst_state == 0)
+			cmm_print(CMM_LOG_DEBUG,
+			    "conn: UDP id=%016llx has no reply yet, offloading",
+			    (unsigned long long)ev->id);
 	}
 
 	/* Skip multicast destinations (stack key) */
