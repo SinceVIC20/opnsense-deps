@@ -73,6 +73,16 @@ struct port_ff_rate_lim_info {
 
 static struct port_ff_rate_lim_info port_rate_lim_mode[MAX_PHYS_PORTS];
 
+/* Same numbering as eth_info.portid (1G: eth_id, 10G: 6 + eth_id). */
+static uint32_t
+cdx_qos_port_index(struct dtsec_softc *sc)
+{
+
+	if (sc->sc_eth_dev_type == ETH_10GSEC)
+		return (6 + (uint32_t)sc->sc_eth_id);
+	return ((uint32_t)sc->sc_eth_id);
+}
+
 /*
  * cdx_qos_add_ff_profile — Create a port-private policer profile.
  *
@@ -82,15 +92,15 @@ static struct port_ff_rate_lim_info port_rate_lim_mode[MAX_PHYS_PORTS];
  * On red: drop.
  */
 static int
-cdx_qos_add_ff_profile(uint8_t eth_id, t_Handle rx_port_handle,
+cdx_qos_add_ff_profile(uint32_t port, t_Handle rx_port_handle,
     t_Handle h_FmPcd, bool is_10g)
 {
 	t_FmPcdPlcrProfileParams params;
 	void *handle;
 	uint32_t cir, pir, cbs, pbs;
 
-	if (eth_id >= MAX_PHYS_PORTS) {
-		printf("cdx: qos: eth_id %u out of range\n", eth_id);
+	if (port >= MAX_PHYS_PORTS) {
+		printf("cdx: qos: port %u out of range\n", port);
 		return (-1);
 	}
 
@@ -139,19 +149,19 @@ cdx_qos_add_ff_profile(uint8_t eth_id, t_Handle rx_port_handle,
 
 	handle = FM_PCD_PlcrProfileSet(h_FmPcd, &params);
 	if (handle == NULL) {
-		printf("cdx: qos: FM_PCD_PlcrProfileSet failed for eth_id %u\n",
-		    eth_id);
+		printf("cdx: qos: FM_PCD_PlcrProfileSet failed for port %u\n",
+		    port);
 		return (-1);
 	}
 
-	port_rate_lim_mode[eth_id].handle = handle;
-	port_rate_lim_mode[eth_id].h_FmPcd = h_FmPcd;
-	port_rate_lim_mode[eth_id].cir_value = cir;
-	port_rate_lim_mode[eth_id].pir_value = pir;
+	port_rate_lim_mode[port].handle = handle;
+	port_rate_lim_mode[port].h_FmPcd = h_FmPcd;
+	port_rate_lim_mode[port].cir_value = cir;
+	port_rate_lim_mode[port].pir_value = pir;
 
-	printf("cdx: qos: plcr profile for eth_id %u — handle=%p %s "
+	printf("cdx: qos: plcr profile for port %u — handle=%p %s "
 	    "cir=%u pir=%u\n",
-	    eth_id, handle, is_10g ? "10G" : "1G", cir, pir);
+	    port, handle, is_10g ? "10G" : "1G", cir, pir);
 
 	return (0);
 }
@@ -205,7 +215,7 @@ cdx_qos_init_ff_profiles(void)
 
 		is_10g = (sc->sc_eth_dev_type == ETH_10GSEC);
 
-		if (cdx_qos_add_ff_profile(sc->sc_eth_id,
+		if (cdx_qos_add_ff_profile(cdx_qos_port_index(sc),
 		    sc->sc_rxph, pcd_handle, is_10g) == 0)
 			configured++;
 	}
@@ -244,7 +254,7 @@ int
 cdx_set_ff_rate(char *ifname, uint32_t cir, uint32_t pir)
 {
 	struct dpa_iface_info *iface_info;
-	int hardwarePortId;
+	int port;
 	t_FmPcdPlcrProfileParams params;
 	void *handle;
 	uint32_t cbs, pbs;
@@ -260,10 +270,10 @@ cdx_set_ff_rate(char *ifname, uint32_t cir, uint32_t pir)
 		return (-1);
 	}
 
-	hardwarePortId = iface_info->eth_info.hardwarePortId;
-	if (hardwarePortId < 0 || hardwarePortId >= MAX_PHYS_PORTS)
+	port = iface_info->eth_info.portid;
+	if (port < 0 || port >= MAX_PHYS_PORTS)
 		return (-1);
-	if (port_rate_lim_mode[hardwarePortId].handle == NULL)
+	if (port_rate_lim_mode[port].handle == NULL)
 		return (-1);
 
 	/* Select burst sizes based on port speed */
@@ -277,7 +287,7 @@ cdx_set_ff_rate(char *ifname, uint32_t cir, uint32_t pir)
 
 	memset(&params, 0, sizeof(params));
 	params.modify = 1;
-	params.id.h_Profile = port_rate_lim_mode[hardwarePortId].handle;
+	params.id.h_Profile = port_rate_lim_mode[port].handle;
 	params.algSelection = e_FM_PCD_PLCR_RFC_2698;
 	params.colorMode = e_FM_PCD_PLCR_COLOR_BLIND;
 	params.color.dfltColor = e_FM_PCD_PLCR_RED;
@@ -295,15 +305,15 @@ cdx_set_ff_rate(char *ifname, uint32_t cir, uint32_t pir)
 	params.paramsOnRed.action = e_FM_PCD_DROP_FRAME;
 
 	handle = FM_PCD_PlcrProfileSet(
-	    port_rate_lim_mode[hardwarePortId].h_FmPcd, &params);
+	    port_rate_lim_mode[port].h_FmPcd, &params);
 	if (handle == NULL) {
 		DPA_ERROR("%s: unable to modify profile for port %d\n",
-		    __func__, hardwarePortId);
+		    __func__, port);
 		return (-1);
 	}
 
-	port_rate_lim_mode[hardwarePortId].cir_value = cir;
-	port_rate_lim_mode[hardwarePortId].pir_value = pir;
+	port_rate_lim_mode[port].cir_value = cir;
+	port_rate_lim_mode[port].pir_value = pir;
 	return (0);
 }
 
@@ -318,7 +328,7 @@ cdx_get_ff_rate(void *pcmd)
 {
 	PQosFFRateCommand cmd;
 	struct dpa_iface_info *iface_info;
-	int hardwarePortId;
+	int port;
 	void *handle;
 
 	cmd = (PQosFFRateCommand)pcmd;
@@ -329,16 +339,16 @@ cdx_get_ff_rate(void *pcmd)
 	if (!(iface_info->if_flags & IF_TYPE_ETHERNET))
 		return (-1);
 
-	hardwarePortId = iface_info->eth_info.hardwarePortId;
-	if (hardwarePortId < 0 || hardwarePortId >= MAX_PHYS_PORTS)
+	port = iface_info->eth_info.portid;
+	if (port < 0 || port >= MAX_PHYS_PORTS)
 		return (-1);
 
-	handle = port_rate_lim_mode[hardwarePortId].handle;
+	handle = port_rate_lim_mode[port].handle;
 	if (handle == NULL)
 		return (-1);
 
-	cmd->cir = port_rate_lim_mode[hardwarePortId].cir_value;
-	cmd->pir = port_rate_lim_mode[hardwarePortId].pir_value;
+	cmd->cir = port_rate_lim_mode[port].cir_value;
+	cmd->pir = port_rate_lim_mode[port].pir_value;
 	get_plcr_counter(handle, &cmd->counterval[0], cmd->clear);
 
 	return (0);
