@@ -54,7 +54,9 @@
 typedef struct _tRouteEntry {
 	struct slist_entry list;
 	U16 nbref;
-	U16 id;
+	/* Matches the U32 RtCommand.id; anything narrower truncates ids
+	 * above 65535 and makes the route unfindable. */
+	U32 id;
 	struct _itf *itf;
 	U8 dstmac[ETHER_ADDR_LEN];
 	U16 mtu;
