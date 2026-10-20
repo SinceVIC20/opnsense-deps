@@ -1,0 +1,6 @@
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It improves 1G SFP fiber support and fixes an upgrade that could roll back for no real reason.
+
+- SFP: with the 1G firmware, the right-hand SFP port no longer negotiates with the other end, because the firmware sets it as a fixed 1G link. Linux does the same. This may be why some fiber links came up but received no traffic. If the other end does need negotiation, turn it back on with sysctl dev.dtsec.4.pcs_autoneg=1.
+- diagnostics: the port diagnostic output (sysctl dev.dtsec.N.diag=1) also shows the port's link layer on 1G and copper ports: whether its link is up, whether negotiation is on and finished, and what the other end offered.
+- upgrades: the upgrade check counted VLANs named after a port, such as dtsec3_vlan10, as network ports. Those don't exist yet when the check runs, so an upgrade could roll back with "only 5 of 6 network ports found". It now counts only the real ports.
+- dashboard: the link next to the release in the Mono Gateway widget now reads status and opens the firmware Status tab instead of the changelog.
