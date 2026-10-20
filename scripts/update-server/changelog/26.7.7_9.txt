@@ -8,3 +8,5 @@ This release comes from the temporary, unofficial Mono Gateway update server at 
 - diagnostics: the port diagnostic output (sysctl dev.dtsec.N.diag=1) also shows pause frames sent and received and why received frames were dropped.
 - offload: after about 65,000 routes, usually 15 to 17 hours of normal use, cmm stopped offloading new flows and kept logging "route deregister failed: 201". The hardware stored route numbers in 16 bits and now keeps the full number.
 - cmm: service cmm start now returns when run over SSH instead of holding the session open.
+- upgrades: the upgrade check counted VLANs named after a port, such as dtsec3_vlan10, as network ports. Those don't exist yet when the check runs, so an upgrade could roll back with "only 5 of 6 network ports found". It now counts only the real ports.
+- dashboard: the link next to the release in the Mono Gateway widget now reads status and opens the firmware Status tab instead of the changelog.
