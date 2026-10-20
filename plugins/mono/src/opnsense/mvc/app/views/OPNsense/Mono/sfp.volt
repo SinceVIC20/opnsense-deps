@@ -335,7 +335,23 @@ $(document).ready(function () {
         }
     }
 
+    /* Pause while the browser tab is hidden, resume when it is shown again (not after a manual Pause). */
+    let autoPaused = false;
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden && timer !== null) {
+            stopLog();
+            autoPaused = true;
+        } else if (!document.hidden && autoPaused) {
+            autoPaused = false;
+            if ($('#tab_log').hasClass('active')) {
+                logLine(now(), "{{ lang._('Paused while this browser tab was hidden, catching up') }}", 'info');
+                startLog();
+            }
+        }
+    });
+
     $('#sfp_log_toggle').click(function () {
+        autoPaused = false;
         timer === null ? startLog() : stopLog();
     });
     $('#sfp_log_clear').click(function () {
