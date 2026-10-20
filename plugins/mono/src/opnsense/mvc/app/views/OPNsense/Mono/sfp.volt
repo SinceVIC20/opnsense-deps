@@ -132,12 +132,12 @@ $(document).ready(function () {
             t.append(row("{{ lang._('1000BASE-X autonegotiation') }}", p.pcs_autoneg ? "{{ lang._('on') }}" : "{{ lang._('off (fixed link)') }}"));
         }
         const sel = $('<select class="selectpicker" data-width="auto">').append(
-            $('<option value="0">').text("{{ lang._('Off - fixed 1G link (default)') }}"),
-            $('<option value="1">').text("{{ lang._('On - auto-negotiate') }}"));
-        sel.val(applies ? String(p.pcs_autoneg) : '0');
+            $('<option value="1">').text("{{ lang._('On - auto-negotiate (default)') }}"),
+            $('<option value="0">').text("{{ lang._('Off - fixed 1G link') }}"));
+        sel.val(applies ? String(p.pcs_autoneg) : '1');
         if (!applies) {
-            /* The list still opens to show the choices, but "On" can't be picked. */
-            sel.find('option[value="1"]').prop('disabled', true);
+            /* The list still opens to show the choices, but "Off" can't be picked. */
+            sel.find('option[value="0"]').prop('disabled', true);
         }
         const btn = $('<button class="btn btn-primary" style="margin-left:10px">').text("{{ lang._('Apply') }}").prop('disabled', !applies);
         const msg = $('<span class="text-muted" style="margin-left:10px">');
