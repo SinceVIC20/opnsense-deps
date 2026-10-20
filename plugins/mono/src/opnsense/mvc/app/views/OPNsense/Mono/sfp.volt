@@ -194,8 +194,8 @@ $(document).ready(function () {
                     return;
                 }
                 dt.append($('<tr>').append($('<td style="width:30%">').text(LABELS[k]),
-                    $('<td>').text(valueText(k, e)),
-                    $('<td style="width:6em;vertical-align:middle">').append(stateBadge(e.state)),
+                    $('<td style="width:1%;white-space:nowrap;padding-right:12px">').text(valueText(k, e)),
+                    $('<td style="width:1%;white-space:nowrap;vertical-align:middle;padding-right:16px">').append(stateBadge(e.state)),
                     $('<td class="text-muted">').text(limitText(k, e))));
             });
             const s = d.status;
