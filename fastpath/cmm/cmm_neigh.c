@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <time.h>
 #include <netlink/netlink.h>
 #include <netlink/netlink_route.h>
 #include <netlink/netlink_snl.h>
@@ -36,6 +37,7 @@
 #include "cmm.h"
 #include "cmm_neigh.h"
 #include "cmm_itf.h"
+#include "cmm_pppoe.h"
 #include "cmm_rtsock.h"
 
 static struct list_head neigh_hash[NEIGH_HASH_TOTAL];
@@ -181,14 +183,32 @@ neigh_find_in_table(const char *buf, size_t len, struct cmm_neigh *neigh)
  * Returns 0 on success, -1 on failure.
  */
 static int
-neigh_resolve(struct cmm_global *g __unused, struct cmm_neigh *neigh)
+neigh_resolve(struct cmm_global *g, struct cmm_neigh *neigh)
 {
+	static time_t pppoe_retry;
+	struct cmm_interface *itf;
+	struct timespec ts;
 	size_t len;
 	char *buf;
 	int failed, rc;
 
 	if (neigh_pppoe(neigh) == 0)
 		return (0);
+
+	/* If the PPPoE session was missed when the link came up, look for it
+	 * again here, at most once a second. */
+	itf = cmm_itf_find_by_index(neigh->ifindex);
+	if (itf != NULL && (itf->flags & IFF_UP) &&
+	    !(itf->itf_flags & ITF_F_PPPOE) &&
+	    strncmp(itf->ifname, "ppp", 3) == 0) {
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		if (ts.tv_sec != pppoe_retry) {
+			pppoe_retry = ts.tv_sec;
+			cmm_pppoe_notify(g, itf);
+			if (neigh_pppoe(neigh) == 0)
+				return (0);
+		}
+	}
 
 	buf = neigh_table(neigh->family, &len, &failed);
 	if (buf == NULL) {
