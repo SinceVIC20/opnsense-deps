@@ -39,9 +39,14 @@
 @dir /usr/local/opnsense/scripts/mono
 /usr/local/opnsense/scripts/mono/connections.sh
 /usr/local/opnsense/scripts/mono/status.py
+/usr/local/opnsense/scripts/mono/sfp.py
 /usr/local/opnsense/service/conf/actions.d/actions_mono.conf
 /usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/Api/StatusController.php
+/usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/Api/SfpController.php
+/usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/SfpController.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Mono/ACL/ACL.xml
+/usr/local/opnsense/mvc/app/models/OPNsense/Mono/Menu/Menu.xml
+/usr/local/opnsense/mvc/app/views/OPNsense/Mono/sfp.volt
 /usr/local/opnsense/mvc/app/library/OPNsense/System/Status/MonoShaperStatus.php
 /usr/local/opnsense/www/js/widgets/Mono.js
 /usr/local/opnsense/www/js/widgets/MonoConnections.js

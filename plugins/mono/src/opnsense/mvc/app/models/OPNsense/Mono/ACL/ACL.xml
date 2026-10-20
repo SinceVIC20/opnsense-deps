@@ -5,4 +5,11 @@
             <pattern>api/mono/status/*</pattern>
         </patterns>
     </page-mono-status>
+    <page-mono-sfp>
+        <name>System: Diagnostics: SFP+</name>
+        <patterns>
+            <pattern>ui/mono/sfp*</pattern>
+            <pattern>api/mono/sfp/*</pattern>
+        </patterns>
+    </page-mono-sfp>
 </acl>

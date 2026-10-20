@@ -266,6 +266,7 @@ package: all
 	# OPNsense plugin files (release and offload dashboard widget)
 	cp -R ${OPSDIR}/plugins/mono/src/opnsense/ ${PKG_STAGEDIR}/usr/local/opnsense/
 	chmod 755 ${PKG_STAGEDIR}/usr/local/opnsense/scripts/mono/status.py
+	chmod 755 ${PKG_STAGEDIR}/usr/local/opnsense/scripts/mono/sfp.py
 	mkdir -p ${PKG_STAGEDIR}/usr/local/etc/inc/plugins.inc.d
 	install -m 644 ${OPSDIR}/plugins/mono/src/etc/inc/plugins.inc.d/mono.inc ${PKG_STAGEDIR}/usr/local/etc/inc/plugins.inc.d/
 	# CMM configd action (restart on interface reassignment)

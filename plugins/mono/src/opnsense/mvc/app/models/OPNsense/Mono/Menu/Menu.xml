@@ -1,0 +1,7 @@
+<menu>
+    <System>
+        <Diagnostics>
+            <SFP VisibleName="SFP+" url="/ui/mono/sfp"/>
+        </Diagnostics>
+    </System>
+</menu>
