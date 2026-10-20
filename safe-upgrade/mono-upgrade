@@ -118,12 +118,19 @@ space_release()
 	rm -f ${STATE}/space.locks ${STATE}/space-notice
 }
 
+ports()
+{
+	# Only the ports themselves; VLANs named after a port don't exist yet
+	# when the boot check runs.
+	ifconfig -l | tr ' ' '\n' | grep -cE '^dtsec[0-9]+$'
+}
+
 health()
 {
 	mount -p | awk '$2 == "/" { print $4 }' | grep -qw rw || { echo "root file system is read-only"; return 1; }
 	mount | grep -q " on ${M} " || { echo "boot partition is not mounted"; return 1; }
-	PORTS=$(ifconfig -l | tr ' ' '\n' | grep -c '^dtsec')
-	WANT=$(cat ${STATE}/ports 2>/dev/null || echo 1)
+	PORTS=$(ports)
+	WANT=$(cat ${STATE}/port-count 2>/dev/null || echo 1)
 	[ "${PORTS}" -ge "${WANT}" ] || { echo "only ${PORTS} of ${WANT} network ports found"; return 1; }
 	return 0
 }
@@ -366,7 +373,7 @@ cmd_boot()
 		fi
 		if [ ! -f ${STATE}/attempt ]; then
 			save_running_kernel
-			ifconfig -l | tr ' ' '\n' | grep -c '^dtsec' > ${STATE}/ports
+			ports > ${STATE}/port-count
 		fi
 	fi
 
@@ -487,7 +494,7 @@ cmd_prepare()
 	cp ${SHARE}/mono-boot.txt ${M}/mono-boot.txt
 	cap_emmc || say "could not cap the eMMC speed"
 	save_running_kernel
-	ifconfig -l | tr ' ' '\n' | grep -c '^dtsec' > ${STATE}/ports
+	ports > ${STATE}/port-count
 
 	if [ ! -f ${STATE}/armed ]; then
 		REC=$(${DISK} record get 2> /dev/null)
@@ -507,7 +514,8 @@ cmd_setup()
 	# Installed by an update instead of the script: record the running kernel and
 	# ports before that update can install a new kernel. Rollback stays unarmed.
 	[ -d ${STATE}/kernel-version ] || save_running_kernel
-	[ -f ${STATE}/ports ] || ifconfig -l | tr ' ' '\n' | grep -c '^dtsec' > ${STATE}/ports
+	[ -f ${STATE}/port-count ] || ports > ${STATE}/port-count
+	rm -f ${STATE}/ports
 	return 0
 }
 
