@@ -43,11 +43,12 @@ for DIR in ${WWW}/FreeBSD:*:aarch64/*/; do
 	mkdir ${TMP}/cl
 	tar -C ${TMP}/cl -xJf ${TMP}/changelog.txz
 	python3 - ${TMP}/cl ${NOTES} <<'EOF'
-import datetime, html, json, os, sys
+import datetime, html, json, os, re, sys
 
 cl, notes = sys.argv[1], sys.argv[2]
 index = json.load(open(os.path.join(cl, "index.json")))
-for name in sorted(os.listdir(notes)):
+# Oldest first by number, so 26.7.7_10 comes after 26.7.7_9.
+for name in sorted(os.listdir(notes), key=lambda n: [int(x) for x in re.findall(r"\d+", n)]):
     if not name.endswith(".txt"):
         continue
     version = name[:-4]
