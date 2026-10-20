@@ -46,8 +46,8 @@ export default class Mono extends BaseTableWidget {
 
         let release = data.release ? $('<span>').text(data.release).prop('outerHTML') : this.translations.unknown;
         if (data.release) {
-            release += ' &nbsp; ' + $('<a>').attr('href', '/ui/core/firmware#changelog')
-                .text(this.translations.notes).prop('outerHTML');
+            release += ' &nbsp; ' + $('<a>').attr('href', '/ui/core/firmware#status')
+                .text(this.translations.status).prop('outerHTML');
         }
 
         let offload;

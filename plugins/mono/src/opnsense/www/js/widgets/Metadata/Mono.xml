@@ -7,7 +7,7 @@
         <translations>
             <title>Mono Gateway</title>
             <release>Release</release>
-            <notes>release notes</notes>
+            <status>status</status>
             <offload>Hardware offload</offload>
             <on>On</on>
             <off>Off</off>
