@@ -69,8 +69,13 @@ $(document).ready(function () {
         return lines.join('\n');
     }
 
-    function stateClass(state) {
-        return state === 'alarm' ? 'text-danger' : (state === 'warning' ? 'text-warning' : 'text-success');
+    const BADGE = {display: 'inline-block', 'min-width': '4.5em', 'line-height': '1.4', 'vertical-align': 'middle', padding: '0 6px'};
+
+    /* Values keep the theme's text colour; a solid badge carries the state so it reads on light and dark themes. */
+    function stateBadge(state) {
+        const cls = state === 'alarm' ? 'label-danger' : (state === 'warning' ? 'label-warning' : 'label-success');
+        const word = state === 'alarm' ? "{{ lang._('alarm') }}" : (state === 'warning' ? "{{ lang._('warning') }}" : 'OK');
+        return $('<span class="label">').addClass(cls).css(BADGE).text(word);
     }
 
     function power(v, d) {
@@ -189,7 +194,8 @@ $(document).ready(function () {
                     return;
                 }
                 dt.append($('<tr>').append($('<td style="width:30%">').text(LABELS[k]),
-                    $('<td>').addClass(stateClass(e.state)).text(valueText(k, e)),
+                    $('<td>').text(valueText(k, e)),
+                    $('<td style="width:6em;vertical-align:middle">').append(stateBadge(e.state)),
                     $('<td class="text-muted">').text(limitText(k, e))));
             });
             const s = d.status;
@@ -234,9 +240,17 @@ $(document).ready(function () {
     /* Live log: kernel messages plus changes seen between polls. */
     let offset = 'boot', last = {}, timer = null;
 
-    function logLine(time, text, cls) {
+    /* kind: ok, bad or info get a solid badge (readable on any theme), muted for kernel lines. */
+    function logLine(time, text, kind) {
         const box = $('#sfp_log');
-        box.append($('<div>').addClass(cls || '').text((time ? time + '  ' : '') + text));
+        const line = $('<div>').text((time ? time + '  ' : '') + text);
+        const badges = {ok: ['label-success', 'OK'], bad: ['label-danger', '!'], info: ['label-info', 'i']};
+        if (badges[kind]) {
+            line.prepend($('<span class="label">').addClass(badges[kind][0]).css(BADGE).css({'min-width': '2.5em', 'margin-right': '6px'}).text(badges[kind][1]));
+        } else if (kind === 'muted') {
+            line.addClass('text-muted');
+        }
+        box.append(line);
         box.scrollTop(box[0].scrollHeight);
     }
 
@@ -266,22 +280,22 @@ $(document).ready(function () {
             return;
         }
         if (s.present !== o.present || s.module !== o.module) {
-            logLine(now(), who + (s.present ? "{{ lang._('module inserted') }}: " + s.module : "{{ lang._('module removed') }}"), 'text-info');
+            logLine(now(), who + (s.present ? "{{ lang._('module inserted') }}: " + s.module : "{{ lang._('module removed') }}"), 'info');
         }
         if (s.status !== o.status) {
-            logLine(now(), who + "{{ lang._('link') }} " + s.status, s.status === 'active' ? 'text-success' : 'text-danger');
+            logLine(now(), who + "{{ lang._('link') }} " + s.status, s.status === 'active' ? 'ok' : 'bad');
         }
         if (s.media !== o.media && s.present) {
             logLine(now(), who + "{{ lang._('media') }} " + s.media);
         }
         if (s.los !== o.los && s.los !== undefined) {
-            logLine(now(), who + (s.los ? "{{ lang._('RX loss of signal') }}" : "{{ lang._('RX signal present') }}"), s.los ? 'text-danger' : 'text-success');
+            logLine(now(), who + (s.los ? "{{ lang._('RX loss of signal') }}" : "{{ lang._('RX signal present') }}"), s.los ? 'bad' : 'ok');
         }
         if (s.rx !== undefined && o.rx !== undefined && (s.rx === null) !== (o.rx === null || Math.abs((s.rx || 0) - (o.rx || 0)) >= 1)) {
             logLine(now(), who + 'RX ' + (s.rx === null ? "{{ lang._('no light') }}" : s.rx + ' dBm') + ', TX ' + (s.tx === null ? '-' : s.tx + ' dBm'));
         }
         if (s.alarms && s.alarms !== o.alarms) {
-            logLine(now(), who + "{{ lang._('alarms') }}: " + s.alarms, 'text-danger');
+            logLine(now(), who + "{{ lang._('alarms') }}: " + s.alarms, 'bad');
         }
     }
 
@@ -293,13 +307,13 @@ $(document).ready(function () {
         ajaxGet('/api/mono/sfp/log', {offset: offset}, function (data) {
             data = plain(data);
             if (first && data.boot) {
-                logLine('', '--- ' + "{{ lang._('Since the router started at') }} " + data.boot + ' ---', 'text-info');
+                logLine('', '--- ' + "{{ lang._('Since the router started at') }} " + data.boot + ' ---', 'info');
             }
             (data.lines || []).forEach(function (l) {
-                logLine(l.time, l.text, 'text-muted');
+                logLine(l.time, l.text, 'muted');
             });
             if (first) {
-                logLine('', '--- ' + "{{ lang._('Live from here') }}" + ' ---', 'text-info');
+                logLine('', '--- ' + "{{ lang._('Live from here') }}" + ' ---', 'info');
             }
             offset = data.offset;
         });
@@ -360,6 +374,6 @@ $(document).ready(function () {
         <button id="sfp_log_toggle" class="btn btn-default">{{ lang._('Pause') }}</button>
         <button id="sfp_log_clear" class="btn btn-default">{{ lang._('Clear') }}</button>
         <button id="sfp_log_copy" class="btn btn-default">{{ lang._('Copy') }}</button>
-        <div id="sfp_log" style="margin-top:10px;height:400px;overflow-y:auto;font-family:monospace;font-size:12px;background:#f8f8f8;border:1px solid #ddd;padding:6px"></div>
+        <div id="sfp_log" style="margin-top:10px;height:400px;overflow-y:auto;font-family:monospace;font-size:12px;line-height:1.9;border:1px solid rgba(128,128,128,0.4);padding:6px"></div>
     </div>
 </div>
