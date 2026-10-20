@@ -1,0 +1,4 @@
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes the 1G SFP port negotiate again by default.
+
+- SFP: the 1G SFP port autonegotiates with the other end again by default, as it did before 26.7.7_10. 26.7.7_10 had turned negotiation off on the fixed 1G link, which cut the WAN for providers that expect it. To turn it off, use System, Diagnostics, SFP+ or set dev.dtsec.4.pcs_autoneg=0.
+- diagnostics: the SFP+ page live log pauses while its browser tab is hidden and catches up when you come back.
