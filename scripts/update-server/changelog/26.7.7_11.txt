@@ -1,0 +1,3 @@
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It adds an SFP+ diagnostics page.
+
+- diagnostics: A new System, Diagnostics, SFP+ page shows each SFP+ module's details, with a live log from boot for troubleshooting and swapping modules. Has copy links for sharing, and a 1G fixed/auto-negotiation switch.
