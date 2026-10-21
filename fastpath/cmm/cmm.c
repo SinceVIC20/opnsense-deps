@@ -464,8 +464,10 @@ main(int argc, char *argv[])
 			if (events[i].filter == EVFILT_TIMER) {
 				if (events[i].ident == 5)
 					cmm_conn_stats_sync(g);
-				else if (events[i].ident == 6)
+				else if (events[i].ident == 6) {
 					cmm_conn_maintenance(g);
+					cmm_itf_ppp_recheck(g);
+				}
 				else if (events[i].ident == 7)
 					cmm_lagg_settle_tick(g);
 			} else if (events[i].udata ==
