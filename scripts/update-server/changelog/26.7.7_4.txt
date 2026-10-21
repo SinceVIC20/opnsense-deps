@@ -1,3 +1,4 @@
+date: 2026-10-15
 This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes the system smaller.
 
 - system: numpy is built the same way as in official OPNsense, without OpenBLAS, so gcc14, binutils and openblas are no longer needed

@@ -1,3 +1,4 @@
+date: 2026-10-15
 This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It brings the whole system up to OPNsense 26.7.7.
 
 - release: the OPNsense GUI and plugins move from 26.7.3_8 to 26.7.7, with all of OPNsense's fixes from 26.7.4 to 26.7.7; the dashboard now shows 26.7.7

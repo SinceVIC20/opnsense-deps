@@ -1,3 +1,4 @@
+date: 2026-10-19
 This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It offloads busy one-way UDP traffic, speeds up WireGuard and fixes PPPoE offload after a cmm restart.
 
 - offload: a UDP flow that never gets a reply, such as a one-way stream, is now moved to the hardware once it has sent at least 64 packets at an average of at least 100 packets per second. Before, it stayed on the CPU. Flows from rules with a packet rate or per-source limit stay on the CPU so those limits still apply.

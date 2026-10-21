@@ -1,3 +1,4 @@
+date: 2026-10-17
 This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It adds a Connections gauge to the dashboard and a note on the traffic shaper pages, and gives the hardware more time to answer before an HC error is reported.
 
 - dashboard: a new Connections gauge next to Memory and Disk shows how many connections are offloaded to hardware (green) and how many are handled by the CPU (orange), with the total in the middle. It is added to the dashboard once, after the restart, and stays next to Memory and Disk at every window width. The Mono Gateway widget now shows hardware offload as just On or Off. The Mono Gateway widget now sits under System Information.

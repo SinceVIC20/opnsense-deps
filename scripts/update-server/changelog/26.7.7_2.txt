@@ -1,3 +1,4 @@
+date: 2026-10-14
 This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes upgrades safe and lets routers with ZFS disks upgrade too.
 
 - release: renumbered from 26.7.2_2 to 26.7.7_2 to line up with the current OPNsense release; updates count up from here (26.7.7_3, 26.7.7_4, ...). The OPNsense GUI inside is still 26.7.3_8 for now

@@ -1,3 +1,4 @@
+date: 2026-10-21
 This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It updates PHP to fix two critical security bugs.
 
 - security: PHP 8.5.12 fixes CVE-2026-109618 and CVE-2026-109619. Anyone who could reach the web GUI could use them to run code on the router without logging in.
