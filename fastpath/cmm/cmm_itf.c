@@ -14,6 +14,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/sysctl.h>
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_types.h>
@@ -26,6 +27,7 @@
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -495,6 +497,53 @@ cmm_itf_fini(void)
 	}
 }
 
+/*
+ * Read a PPP interface's current state from the kernel and handle it like
+ * an RTM_IFINFO.  mpd5 renames ng0 to pppoeN after bringing it up, and a
+ * rename sends a departure and an arrival but no RTM_IFINFO.
+ */
+static void
+itf_ppp_refresh(struct cmm_global *g, int ifindex)
+{
+	int mib[6] = { CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST, ifindex };
+	char ifname[IFNAMSIZ];
+	struct if_msghdr *ifm;
+	size_t len;
+	char *buf;
+
+	if (if_indextoname(ifindex, ifname) == NULL ||
+	    strncmp(ifname, "ppp", 3) != 0)
+		return;
+	if (sysctl(mib, 6, NULL, &len, NULL, 0) < 0 || len < sizeof(*ifm))
+		return;
+	buf = malloc(len);
+	if (buf == NULL)
+		return;
+	if (sysctl(mib, 6, buf, &len, NULL, 0) == 0 && len >= sizeof(*ifm)) {
+		ifm = (struct if_msghdr *)buf;
+		if (ifm->ifm_type == RTM_IFINFO)
+			cmm_itf_handle_ifinfo(g, ifm, ifm->ifm_msglen);
+	}
+	free(buf);
+}
+
+/*
+ * Read every PPP interface again, after lost route socket messages and from
+ * maintenance, so a missed PPPoE reconnect is still picked up.
+ */
+void
+cmm_itf_ppp_recheck(struct cmm_global *g)
+{
+	struct if_nameindex *ifs, *p;
+
+	ifs = if_nameindex();
+	if (ifs == NULL)
+		return;
+	for (p = ifs; p->if_index != 0; p++)
+		itf_ppp_refresh(g, (int)p->if_index);
+	if_freenameindex(ifs);
+}
+
 void
 cmm_itf_handle_ifannounce(struct cmm_global *g, void *msg, int msglen)
 {
@@ -503,7 +552,11 @@ cmm_itf_handle_ifannounce(struct cmm_global *g, void *msg, int msglen)
 
 	(void)msglen;
 
-	/* Arrivals are picked up by the RTM_IFINFO that follows. */
+	/* Other arrivals are picked up by the RTM_IFINFO that follows. */
+	if (ifan->ifan_what == IFAN_ARRIVAL) {
+		itf_ppp_refresh(g, ifan->ifan_index);
+		return;
+	}
 	if (ifan->ifan_what != IFAN_DEPARTURE)
 		return;
 

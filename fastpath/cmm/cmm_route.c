@@ -442,6 +442,8 @@ cmm_route_invalidate_by_oif(struct cmm_global *g, int oif_index)
 
 			cmm_route_invalidate_conns(g, rt);
 			cmm_fe_route_deregister(g, rt);
+			/* The interface changed, so an earlier rejection is stale. */
+			rt->fpp_rejected = 0;
 			count++;
 		}
 	}
