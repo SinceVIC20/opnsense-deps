@@ -1,3 +1,3 @@
-This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It keeps PPPoE connections in hardware after a restart.
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It keeps PPPoE connections in hardware after a reconnect.
 
-- offload: on a PPPoE WAN, cmm now finds the PPPoE session even when it wasn't fully up as the router started or reconnected. Before, a missed session left almost all WAN traffic on the CPU until cmm was restarted.
+- offload: PPPoE connections stay in hardware after the provider reconnects. Before, a reconnect left almost all WAN traffic on the CPU until the router restarted, and setting up the connection again could crash the router.
