@@ -2915,12 +2915,9 @@ static int create_tunnel_remove_hm(struct ins_entry_info *info)
 	word = 0;
 #endif
 	info->eth_type = Get_Tnl_Ethertype(info->l3_info.mode) & 0xFFFF;	
-	param->stats_ptr = cpu_to_be32(word);
-	if(info->l3_info.tunnel_flags & DSCP_COPY)
-	{
+	if (info->l3_info.tunnel_flags & DSCP_COPY)
 		word |= COPY_DSCP_OUTER_INNER;
-		param->flags = cpu_to_be32(word);
-	}
+	param->word = cpu_to_be32(word);
 	//update opcode and param ptr
 	*(info->opcptr) = REMOVE_FIRST_IP_HDR;
 	info->opcptr++;
