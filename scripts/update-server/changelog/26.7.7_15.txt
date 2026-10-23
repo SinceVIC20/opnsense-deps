@@ -1,0 +1,7 @@
+date: 2026-10-23
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It brings four hardware offload fixes from Mono's Linux offload code (ASK 1.2.0) and frees about 37 MB of kernel memory.
+
+- offload: offloaded traffic now leaves with the port's current MAC address. Before, it kept the port's original address after a change, such as a MAC address set on the WAN in Interfaces, so offloaded traffic and the router's own traffic used different addresses.
+- security: packets with a TTL or hop limit of 0 or 1, and IPsec NAT-T keepalives, now reach the CPU through the hardware rate limit. Before, they skipped it, so anyone on the WAN could flood the CPU with them. Traceroute to and through the router works as before.
+- offload: offloaded 6in4 and 4in6 tunnel traffic now counts toward the tunnel's statistics. Before, the counters were written to the wrong place in the offload engine's memory.
+- memory: the offload tables share their locks between buckets instead of using one per bucket, which frees about 37 MB of kernel memory.
