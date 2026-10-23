@@ -79,7 +79,7 @@ struct eth_iface_info {
 	qman_cb_dqrr dqrr;
 	uint32_t num_pools;	//pools used by port
 	struct port_bman_pool_info pool_info[MAX_PORT_BMAN_POOLS]; //pool info
-	uint8_t mac_addr[ETH_ALEN];	//mac address
+	struct ifnet *ifp;		//port's ifnet, source of its current MAC
 	uint8_t br_mac_addr[ETH_ALEN];	//bridge mac address
 	uint8_t is_bridged;		// flag to check if interface is bridged or not
 	uint32_t max_dist;		//max PCD distributions

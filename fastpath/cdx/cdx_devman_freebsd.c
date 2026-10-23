@@ -186,7 +186,9 @@ dpa_add_eth_if(char *name, struct _itf *itf, struct _itf *phys_itf)
 	eth->port_idx = sc->sc_eth_id;
 	eth->portid = devman_ethid_to_portid(sc->sc_eth_id,
 	    sc->sc_eth_dev_type);
-	memcpy(eth->mac_addr, sc->sc_mac_addr, 6);
+	/* Keep the ifnet, not a copy of the boot MAC: a MAC set later
+	 * (ifconfig ether, a spoofed WAN MAC) changes only the ifnet. */
+	eth->ifp = sc->sc_ifnet;
 
 	/* TX channel for QMan enqueue */
 	eth->tx_channel_id = sc->sc_port_tx_qman_chan;
@@ -867,7 +869,8 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 			 * the LAGG if we came through one, else the port */
 			memcpy(l2_info->l2hdr, rt_entry->dstmac, 6);
 			memcpy(l2_info->l2hdr + 6,
-			    src_mac != NULL ? src_mac : eth->mac_addr, 6);
+			    src_mac != NULL ? src_mac :
+			    (uint8_t *)if_getlladdr(eth->ifp), 6);
 
 			l2_info->mtu = cur->mtu;
 
@@ -944,7 +947,7 @@ dpa_get_tx_l2info_by_itf(struct dpa_l2hdr_info *l2_info,
 			struct eth_iface_info *eth =
 			    &eth_parent->eth_info;
 
-			memcpy(l2_info->l2hdr + 6, eth->mac_addr, 6);
+			memcpy(l2_info->l2hdr + 6, if_getlladdr(eth->ifp), 6);
 			l2_info->mtu = eth_parent->mtu;
 			l2_info->fqid = eth->fwd_tx_fqinfo[
 			    hash % DPAA_FWD_TX_QUEUES].fqid;
@@ -1085,7 +1088,7 @@ dpa_get_mac_addr(char *name, char *mac_addr)
 
 	eth_parent = devman_find_eth_parent(iface);
 	if (eth_parent != NULL) {
-		memcpy(mac_addr, eth_parent->eth_info.mac_addr, 6);
+		memcpy(mac_addr, if_getlladdr(eth_parent->eth_info.ifp), 6);
 		spin_unlock(&dpa_devlist_lock);
 		return (0);
 	}
