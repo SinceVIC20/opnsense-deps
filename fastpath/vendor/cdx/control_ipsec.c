@@ -262,6 +262,9 @@ static int M_ipsec_sa_set_cipher_key(PSAEntry sa, U16 key_alg, U16 key_bits, U8*
 	switch (key_alg) {
 		case SADB_X_EALG_AESCTR:
 			algo = OP_PCL_IPSEC_AES_CTR;
+			sa->blocksz = 16;
+			comb_mode = 1;
+			extra_size = 4;	/* RFC 3686 nonce trails the AES key */
 			break;
 		case SADB_X_EALG_AESCBC:
 			algo = OP_PCL_IPSEC_AES_CBC;
@@ -315,14 +318,11 @@ static int M_ipsec_sa_set_cipher_key(PSAEntry sa, U16 key_alg, U16 key_bits, U8*
 			sa->icvsz = 16;
 			sa->pSec_sa_context->auth_data.split_key_len = 0;
 			break;
-		case SADB_X_EALG_NULL_AES_GMAC:
-			algo = OP_PCL_IPSEC_AES_GMAC;
-			sa->blocksz = 16;
-			comb_mode = 1;
-			extra_size = 4;
-			sa->icvsz = 16;
-			sa->pSec_sa_context->auth_data.split_key_len = 0;
-			break;
+		/*
+		 * No AES-GMAC: SEC leaves the IV out of the ICV that RFC 4543
+		 * covers, so no peer accepts its frames. The SA stays in
+		 * software (ASK a68f741).
+		 */
 		case SADB_EALG_3DESCBC:
 			algo = OP_PCL_IPSEC_3DES;
 			sa->blocksz = 8;

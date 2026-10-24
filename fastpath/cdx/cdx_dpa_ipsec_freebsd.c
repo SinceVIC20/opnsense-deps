@@ -628,6 +628,10 @@ cdx_ipsec_build_in_sa_pdb(PSAEntry sa)
 	    ctx->cipher_data.cipher_type == OP_PCL_IPSEC_AES_GCM16 ||
 	    ctx->cipher_data.cipher_type == OP_PCL_IPSEC_AES_GMAC) {
 		memcpy(sec_desc->pdb_dec.gcm.salt, salt, AES_GCM_SALT_LEN);
+	} else if (ctx->cipher_data.cipher_type == OP_PCL_IPSEC_AES_CTR) {
+		/* RFC 3686: the nonce trails the key, the block counter starts at 1. */
+		memcpy(sec_desc->pdb_dec.ctr.ctr_nonce, salt, AES_CTR_SALT_LEN);
+		sec_desc->pdb_dec.ctr.ctr_initial = cpu_to_caam32(1);
 	} else if (ctx->cipher_data.cipher_type == OP_PCL_IPSEC_AES_CCM8) {
 		memcpy(&sec_desc->pdb_dec.ccm.salt[1], salt,
 		    AES_CCM_SALT_LEN);
@@ -810,6 +814,10 @@ cdx_ipsec_build_out_sa_pdb(PSAEntry sa)
 	    ctx->cipher_data.cipher_type == OP_PCL_IPSEC_AES_GCM16 ||
 	    ctx->cipher_data.cipher_type == OP_PCL_IPSEC_AES_GMAC) {
 		memcpy(sec_desc->pdb_en.gcm.salt, salt, AES_GCM_SALT_LEN);
+	} else if (ctx->cipher_data.cipher_type == OP_PCL_IPSEC_AES_CTR) {
+		/* RFC 3686: the nonce trails the key, the block counter starts at 1. */
+		memcpy(sec_desc->pdb_en.ctr.ctr_nonce, salt, AES_CTR_SALT_LEN);
+		sec_desc->pdb_en.ctr.ctr_initial = cpu_to_caam32(1);
 	} else if (ctx->cipher_data.cipher_type == OP_PCL_IPSEC_AES_CCM8) {
 		memcpy(&sec_desc->pdb_en.ccm.salt[1], salt,
 		    AES_CCM_SALT_LEN);

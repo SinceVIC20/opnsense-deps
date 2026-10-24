@@ -76,6 +76,7 @@ struct desc_hdr {
  * GCM/CCM salt and option constants
  */
 #define AES_GCM_SALT_LEN	4
+#define AES_CTR_SALT_LEN	4	/* RFC 3686 nonce */
 #define AES_CCM_SALT_LEN	3
 #define AES_CCM_INIT_COUNTER	0x0
 #define AES_CCM_ICV8_IV_FLAG	0x5B
