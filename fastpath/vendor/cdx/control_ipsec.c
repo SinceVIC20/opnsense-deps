@@ -241,9 +241,14 @@ static int M_ipsec_sa_set_digest_key(PSAEntry sa, U16 key_alg, U16 key_bits, U8*
 	sa->pSec_sa_context->auth_data.auth_type = algo;
 	sa->pSec_sa_context->auth_data.auth_key_len = (key_bits/8);
 	memcpy(sa->pSec_sa_context->auth_data.auth_key,	key, (key_bits/8));
-	/* Generate the split key from the normal auth key */
-	if (algo != SADB_X_AALG_AES_XCBC_MAC)
-		cdx_ipsec_generate_split_key(&sa->pSec_sa_context->auth_data );
+	/*
+	 * Generate the split key from the normal auth key. Without it SEC
+	 * would check every frame against a key it never derived, so the SA
+	 * is refused and stays in software (ASK d522d4a).
+	 */
+	if (algo != SADB_X_AALG_AES_XCBC_MAC &&
+	    cdx_ipsec_generate_split_key(&sa->pSec_sa_context->auth_data) != 0)
+		return -1;
 	return 0;
 }
 

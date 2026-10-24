@@ -1220,6 +1220,9 @@ cdx_ipsec_generate_split_key(struct auth_params *auth_param)
 	    "Use AES-GCM which does not require split keys.\n",
 	    __func__, alg_sel);
 
+	/* No split key was written, so none may be used (ASK d522d4a). */
+	auth_param->split_key_len = 0;
+	auth_param->split_key_pad_len = 0;
 	free(desc, M_CDX);
 	return (-ENOTSUP);
 }
