@@ -515,21 +515,26 @@ get_stats_from_sa(PSAEntry sa, uint32_t *pkts, uint64_t *bytes,
 }
 
 static inline void
-save_stats_in_external_mem(PSAEntry sa)
+save_sa_state_in_external_mem(PSAEntry sa)
 {
 	uint32_t *desc;
 	uint32_t stats_offset;
+	uint32_t off_w, len_w;
 
 	desc = (uint32_t *)sa->pSec_sa_context->sec_desc->shared_desc;
 	stats_offset = sa->stats_offset;
 
 	/*
-	 * STORE command: write stats from descriptor buffer to itself.
+	 * Every job stores the PDB (sequence number, replay window, IV) back
+	 * with the stats words after it, so SEC orders a later fetch of the
+	 * descriptor after this job's update (SEC RM 7.3.1, ASK 1055403).
 	 * Length is in 4-byte words for Descriptor Buffer, offset in words.
 	 */
-	append_store(desc, 0, CDX_DPA_IPSEC_STATS_LEN,
+	off_w = 1;
+	len_w = stats_offset / 4 - 1 + CDX_DPA_IPSEC_STATS_LEN;
+	append_store(desc, 0, len_w,
 	    LDST_CLASS_DECO |
-	    ((stats_offset / 4) << LDST_OFFSET_SHIFT) |
+	    (off_w << LDST_OFFSET_SHIFT) |
 	    LDST_SRCDST_WORD_DESCBUF_SHARED);
 
 	/* JUMP CALM to ensure previous operation completed */
@@ -828,6 +833,30 @@ cdx_ipsec_build_out_sa_pdb(PSAEntry sa)
  *   [save stats to external mem]
  * ================================================================ */
 
+static bool
+cdx_ipsec_cipher_is_gcm(uint32_t cipher_type)
+{
+
+	return (cipher_type == OP_PCL_IPSEC_AES_GCM8 ||
+	    cipher_type == OP_PCL_IPSEC_AES_GCM12 ||
+	    cipher_type == OP_PCL_IPSEC_AES_GCM16);
+}
+
+/*
+ * GCM keeps its state in the class 1 context, so carrying the context into
+ * the next packet (HDR_SAVECTX) corrupts its ICV once SEC runs one SA back
+ * to back on a DECO. Other ciphers set their context up per packet
+ * (ASK 451bc18).
+ */
+static uint32_t
+cdx_ipsec_sh_desc_hdr_flags(PSAEntry sa)
+{
+
+	if (cdx_ipsec_cipher_is_gcm(sa->pSec_sa_context->cipher_data.cipher_type))
+		return (HDR_SHARE_SERIAL);
+	return (HDR_SAVECTX | HDR_SHARE_SERIAL);
+}
+
 int
 cdx_ipsec_build_shared_descriptor(PSAEntry sa,
     uint64_t auth_key_dma, uint64_t crypto_key_dma,
@@ -854,12 +883,12 @@ cdx_ipsec_build_shared_descriptor(PSAEntry sa,
 		    (caam32_to_cpu(ctx->sec_desc->pdb_en.ip_hdr_len) +
 		    3) & ~3;
 		pdb_len += sizeof(struct ipsec_encap_pdb) + opthdrsz;
-		init_sh_desc_pdb(desc, HDR_SAVECTX | HDR_SHARE_SERIAL,
+		init_sh_desc_pdb(desc, cdx_ipsec_sh_desc_hdr_flags(sa),
 		    pdb_len);
 		sa_op = OP_TYPE_ENCAP_PROTOCOL;
 	} else {
 		pdb_len += sizeof(struct ipsec_decap_pdb);
-		init_sh_desc_pdb(desc, HDR_SAVECTX | HDR_SHARE_SERIAL,
+		init_sh_desc_pdb(desc, cdx_ipsec_sh_desc_hdr_flags(sa),
 		    pdb_len);
 		sa_op = OP_TYPE_DECAP_PROTOCOL;
 	}
@@ -931,8 +960,8 @@ cdx_ipsec_build_shared_descriptor(PSAEntry sa,
 	if (sa->direction == CDX_DPA_IPSEC_INBOUND)
 		build_stats_descriptor_part(sa, pdb_len);
 
-	/* Save stats to external memory */
-	save_stats_in_external_mem(sa);
+	/* Save the PDB and stats to external memory */
+	save_sa_state_in_external_mem(sa);
 
 	/* Check descriptor length fits in QI shared descriptor limit */
 	if (desc_len(desc) >= MAX_CAAM_SHARED_DESCSIZE) {
