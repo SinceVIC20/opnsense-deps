@@ -81,7 +81,8 @@ static t_Handle cdx_fwd_tx_fqr[CDX_MAX_ETH_PORTS];
  * the port they came in on. A port paused by flow control could hold that
  * whole pool, so each port's queues share a frame limit, sized as in ASK
  * (9abae8f): 2 ms of the largest frames at link speed, never fewer than
- * two 64 KiB bursts of standard frames, never more than 1280.
+ * two 64 KiB bursts of standard frames, never more than 512, a quarter of
+ * an incoming port's 2048-buffer pool (ASK's 1280 fits its larger pool).
  */
 #define	CDX_FWD_QUEUE_US	2000
 #define	CDX_FWD_MIN_BYTES	(64 * 1024)
@@ -89,7 +90,7 @@ static t_Handle cdx_fwd_tx_fqr[CDX_MAX_ETH_PORTS];
 #define	CDX_FWD_VLAN_ETH_HLEN	18
 #define	CDX_FWD_STD_MTU		1500
 #define	CDX_FWD_BURST_FRAMES	128
-#define	CDX_FWD_MAX_FRAMES	1280
+#define	CDX_FWD_MAX_FRAMES	512
 static t_Handle cdx_fwd_tx_cg[CDX_MAX_ETH_PORTS];
 
 static uint32_t
