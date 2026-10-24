@@ -742,6 +742,8 @@ cdx_exthash_update_first_mcast_member_addr(
 	tmp_val.rsvd = 0;
 	tmp_val.addr_hi = cpu_to_be16((listener_phyaddr >> 32) & 0xffff);
 	tmp_val.addr_lo = cpu_to_be32(listener_phyaddr & 0xffffffff);
+	/* The group may be live: FMan must see the listener before the link. */
+	wmb();
 	param->first_member_flow_addr = tmp_val.addr;
 
 	entry = (struct en_exthash_tbl_entry *)param->first_listener_entry;
