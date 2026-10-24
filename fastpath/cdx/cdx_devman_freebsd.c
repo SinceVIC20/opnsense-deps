@@ -52,6 +52,12 @@ extern t_Handle qman_fqr_create_ctx(uint32_t fqids_num,
     e_QmFQChannel channel, uint8_t wq, bool force_fqid,
     uint32_t fqid_or_align, bool prefer_in_cache,
     t_QmContextA *p_context_a, t_QmContextB *p_context_b);
+extern t_Handle qman_fqr_create_ctx_cg(uint32_t fqids_num,
+    e_QmFQChannel channel, uint8_t wq, bool force_fqid,
+    uint32_t fqid_or_align, bool prefer_in_cache,
+    t_QmContextA *p_context_a, t_QmContextB *p_context_b, t_Handle cg);
+extern t_Handle qman_cg_create(uint32_t frames);
+extern void qman_cg_free(t_Handle cg);
 extern t_Error qman_fqr_free(t_Handle fqr);
 extern uint32_t qman_fqr_get_counter(t_Handle fqr, uint32_t fqid_off,
     e_QmFqrCounters counter);
@@ -69,6 +75,37 @@ MALLOC_DEFINE(M_CDX_DEVMAN, "cdx_devman", "CDX interface management");
  */
 #define	CDX_MAX_ETH_PORTS	8
 static t_Handle cdx_fwd_tx_fqr[CDX_MAX_ETH_PORTS];
+
+/*
+ * Offloaded frames waiting on a port's forwarding queues hold buffers of
+ * the port they came in on. A port paused by flow control could hold that
+ * whole pool, so each port's queues share a frame limit, sized as in ASK
+ * (9abae8f): 2 ms of the largest frames at link speed, never fewer than
+ * two 64 KiB bursts of standard frames, never more than 1280.
+ */
+#define	CDX_FWD_QUEUE_US	2000
+#define	CDX_FWD_MIN_BYTES	(64 * 1024)
+#define	CDX_FWD_WIRE_OVERHEAD	24	/* preamble, gap and FCS */
+#define	CDX_FWD_VLAN_ETH_HLEN	18
+#define	CDX_FWD_STD_MTU		1500
+#define	CDX_FWD_BURST_FRAMES	128
+#define	CDX_FWD_MAX_FRAMES	1280
+static t_Handle cdx_fwd_tx_cg[CDX_MAX_ETH_PORTS];
+
+static uint32_t
+cdx_fwd_cg_frames(uint32_t speed, uint32_t mtu)
+{
+	uint64_t bytes, largest, burst, frames;
+
+	/* Mbit/s times microseconds is bits. */
+	bytes = MAX((uint64_t)speed * CDX_FWD_QUEUE_US / 8, CDX_FWD_MIN_BYTES);
+	largest = bytes / (mtu + CDX_FWD_VLAN_ETH_HLEN + CDX_FWD_WIRE_OVERHEAD);
+	burst = MIN(bytes / (CDX_FWD_STD_MTU + CDX_FWD_VLAN_ETH_HLEN +
+	    CDX_FWD_WIRE_OVERHEAD), CDX_FWD_BURST_FRAMES);
+	frames = MAX(largest, burst);
+
+	return ((uint32_t)MIN(MAX(frames, 1), CDX_FWD_MAX_FRAMES));
+}
 
 /* ================================================================
  * Globals — defined in cdx_dpa_stub.c
@@ -206,23 +243,39 @@ dpa_add_eth_if(char *name, struct _itf *itf, struct _itf *phys_itf)
 	 */
 	{
 		t_QmContextA ctx_a;
-		t_Handle fqr;
+		t_Handle fqr, cg;
 		uint32_t port = eth->port_idx;
 		uint32_t i;
 
 		ctx_a.res[0] = 0x9a000000;	/* OVFQ|A2V|A0V|OVOM */
 		ctx_a.res[1] = 0xC0000000;	/* EBD=1 */
 
-		fqr = qman_fqr_create_ctx(DPAA_FWD_TX_QUEUES,
+		/* Without a group the queues still work, just with no limit. */
+		cg = NULL;
+		if (port < CDX_MAX_ETH_PORTS) {
+			cg = qman_cg_create(cdx_fwd_cg_frames(eth->speed,
+			    iface->mtu));
+			if (cg == NULL)
+				DPA_ERROR("cdx: devman: %s no limit on "
+				    "forwarding queues\n", name);
+		}
+
+		fqr = qman_fqr_create_ctx_cg(DPAA_FWD_TX_QUEUES,
 		    (e_QmFQChannel)sc->sc_port_tx_qman_chan, 0,
-		    false, 0, true, &ctx_a, NULL);
+		    false, 0, true, &ctx_a, NULL, cg);
+		if (fqr == NULL) {
+			qman_cg_free(cg);
+			cg = NULL;
+		}
 		if (fqr != NULL) {
 			tx_fqid = QM_FQR_GetFqid(fqr);
 			for (i = 0; i < DPAA_FWD_TX_QUEUES; i++)
 				eth->fwd_tx_fqinfo[i].fqid = tx_fqid + i;
 
-			if (port < CDX_MAX_ETH_PORTS)
+			if (port < CDX_MAX_ETH_PORTS) {
 				cdx_fwd_tx_fqr[port] = fqr;
+				cdx_fwd_tx_cg[port] = cg;
+			}
 
 			DPA_INFO("cdx: devman: %s fwd_tx_fqid=0x%x..0x%x "
 			    "(%d FQs, EBD=1)\n", name, tx_fqid,
@@ -1239,6 +1292,8 @@ dpa_release_iflist(void)
 			qman_fqr_free(cdx_fwd_tx_fqr[i]);
 			cdx_fwd_tx_fqr[i] = NULL;
 		}
+		qman_cg_free(cdx_fwd_tx_cg[i]);
+		cdx_fwd_tx_cg[i] = NULL;
 	}
 
 	spin_lock(&dpa_devlist_lock);

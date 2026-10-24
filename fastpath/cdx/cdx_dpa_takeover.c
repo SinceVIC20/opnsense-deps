@@ -41,6 +41,7 @@
 /* From if_dtsec.h — forward declare to avoid pulling in NCSW port types */
 void	dtsec_rm_buf_free_external(uint8_t bpid, void *buf);
 void	dtsec_rm_pool_rx_refill_bpid(uint8_t bpid);
+void	*dtsec_rm_rx_cg(if_t ifp);
 
 /* NCSW types (t_Handle) */
 #include <contrib/ncsw/inc/ncsw_ext.h>
@@ -268,6 +269,7 @@ cdx_create_port_fqs(void)
 		uint32_t portid = pi->portid;
 		uint32_t rr = 0;
 		if_t ifp;
+		t_Handle cg;
 
 		if (di == NULL || pi->max_dist == 0)
 			continue;
@@ -281,6 +283,13 @@ cdx_create_port_fqs(void)
 		 */
 		ifp = (pi->type != 0) ?
 		    cdx_dpa_bridge_find_ifnet(pi->name) : NULL;
+
+		/*
+		 * Every classifier miss on the port ends on these queues, so
+		 * they share the limit of the port's own queues to the CPU
+		 * (ASK d1adb10). OH ports have none.
+		 */
+		cg = (ifp != NULL) ? dtsec_rm_rx_cg(ifp) : NULL;
 
 		for (j = 0; j < pi->max_dist; j++) {
 			uint32_t fqid, count, nblk, blk, k;
@@ -308,8 +317,8 @@ cdx_create_port_fqs(void)
 				    false,			/* init_parked */
 				    false,			/* hold_active */
 				    true,			/* prefer_in_cache */
-				    false,			/* congst_avoid */
-				    NULL,			/* congst_group */
+				    cg != NULL,			/* congst_avoid */
+				    cg,				/* congst_group */
 				    0,				/* overhead_len */
 				    0);				/* tail_drop */
 				if (fqr == NULL) {
