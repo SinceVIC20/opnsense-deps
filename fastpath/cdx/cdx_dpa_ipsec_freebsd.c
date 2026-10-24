@@ -685,8 +685,34 @@ cdx_ipsec_build_out_sa_pdb(PSAEntry sa)
 	sec_desc->pdb_en.seq_num =
 	    cpu_to_caam32(sa->seq & SEQ_NUM_LOW_MASK);
 
-	/* IV from internal random generator */
-	sec_desc->pdb_en.options |= PDBOPTS_ESP_IVSRC;
+	/*
+	 * Counter modes must never repeat an IV under a key, and SEC's random
+	 * 64-bit ones collide after about 2^32 frames, which for GCM gives
+	 * away the authentication key. Without IVSRC SEC sends the PDB's IV
+	 * and counts it up, and the PDB store keeps it from job to job; each
+	 * SA starts at a random point. CBC keeps SEC's random IVs (ASK e9aa5ad).
+	 */
+	switch (ctx->cipher_data.cipher_type) {
+	case OP_PCL_IPSEC_AES_GCM8:
+	case OP_PCL_IPSEC_AES_GCM12:
+	case OP_PCL_IPSEC_AES_GCM16:
+		arc4random_buf(&sec_desc->pdb_en.gcm.iv,
+		    sizeof(sec_desc->pdb_en.gcm.iv));
+		break;
+	case OP_PCL_IPSEC_AES_CCM8:
+	case OP_PCL_IPSEC_AES_CCM12:
+	case OP_PCL_IPSEC_AES_CCM16:
+		arc4random_buf(&sec_desc->pdb_en.ccm.iv,
+		    sizeof(sec_desc->pdb_en.ccm.iv));
+		break;
+	case OP_PCL_IPSEC_AES_CTR:
+		arc4random_buf(&sec_desc->pdb_en.ctr.iv,
+		    sizeof(sec_desc->pdb_en.ctr.iv));
+		break;
+	default:
+		sec_desc->pdb_en.options |= PDBOPTS_ESP_IVSRC;
+		break;
+	}
 
 	if (sa->mode == SA_MODE_TUNNEL) {
 		sec_desc->pdb_en.options |= PDBOPTS_OIHI_FROM_PDB;
