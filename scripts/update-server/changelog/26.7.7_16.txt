@@ -1,0 +1,12 @@
+date: 2026-10-24
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It fixes a port that could stop receiving after a traffic burst, and brings more fixes from Mono's Linux offload code (ASK 1.2.0), most of them for IPsec.
+
+- offload: a burst that used up a port's receive buffers could leave that port receiving nothing until a restart, cutting off every device behind it. The buffers are now refilled several times a second whatever happens, so the port recovers on its own.
+- offload: frames waiting for the CPU and offloaded frames waiting for a busy port are now limited per port, so they can't hold every receive buffer of the port they came in on.
+- offload: the two 10G ports get a 48 KB receive FIFO instead of 24 KB, for line-rate bursts. The boot log and the port diagnostics show the size each port really has.
+- offload: a new offload entry is now fully written before the hardware can reach it. Before, a rare race could let the hardware read a half-written entry.
+- tunnels: 6in4 and 4in6 traffic marked with ECN congestion (CE) now goes to the CPU, so the mark reaches the inner packet. Before, the hardware dropped it with the outer header.
+- ipsec: an SA's sequence number, replay window and IV are saved after every packet, and AES-GCM no longer carries state from one packet into the next. Before, sequence numbers could repeat and GCM could fail its integrity check under load.
+- ipsec: AES-GCM, CCM and CTR IVs now count up from a random start for each SA instead of being drawn at random per packet, so they never repeat. Repeated GCM IVs can give away the key.
+- ipsec: AES-CTR now uses its nonce correctly. AES-GMAC, and SAs that use an HMAC key, stay in software, because the hardware can't handle them correctly here.
+- ipsec: fixed a crash when IPsec keys arrive for an SA that doesn't exist.
