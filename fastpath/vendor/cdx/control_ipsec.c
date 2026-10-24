@@ -613,10 +613,9 @@ int IPsec_handle_SA_SET_KEYS(U16 *p, U16 Length)
 	printk(KERN_INFO "%s sagd %d, numkeys %d\n", __func__, cmd.sagd,cmd.num_keys);
 #endif
 	sa = M_ipsec_sa_cache_lookup_by_h(cmd.sagd);
-	sa->pSec_sa_context->auth_data.auth_type = 0;
-
 	if (sa == NULL)
 		return ERR_SA_UNKNOWN;
+	sa->pSec_sa_context->auth_data.auth_type = 0;
 	for (i = 0;i<cmd.num_keys;i++) {
 		key = (PIPSec_key_desc)&cmd.keys[i];
 #ifdef CONTROL_IPSEC_DEBUG
