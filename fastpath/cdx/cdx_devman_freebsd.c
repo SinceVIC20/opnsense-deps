@@ -46,6 +46,7 @@
 
 /* NCSW public QMan API — for QM_FQR_GetFqid, t_QmContextA */
 #include <contrib/ncsw/inc/Peripherals/qm_ext.h>
+#include <sys/sbuf.h>
 
 /* FreeBSD QMan wrapper — for qman_fqr_create_ctx */
 extern t_Handle qman_fqr_create_ctx(uint32_t fqids_num,
@@ -58,6 +59,7 @@ extern t_Handle qman_fqr_create_ctx_cg(uint32_t fqids_num,
     t_QmContextA *p_context_a, t_QmContextB *p_context_b, t_Handle cg);
 extern t_Handle qman_cg_create(uint32_t frames);
 extern void qman_cg_free(t_Handle cg);
+extern int64_t qman_cg_count(t_Handle cg);
 extern t_Error qman_fqr_free(t_Handle fqr);
 extern uint32_t qman_fqr_get_counter(t_Handle fqr, uint32_t fqid_off,
     e_QmFqrCounters counter);
@@ -92,6 +94,21 @@ static t_Handle cdx_fwd_tx_fqr[CDX_MAX_ETH_PORTS];
 #define	CDX_FWD_BURST_FRAMES	128
 #define	CDX_FWD_MAX_FRAMES	512
 static t_Handle cdx_fwd_tx_cg[CDX_MAX_ETH_PORTS];
+static char cdx_fwd_tx_name[CDX_MAX_ETH_PORTS][IF_NAME_SIZE];
+
+/* Frames each port's forwarding queues hold now, as "dtsec3:12 dtsec4:0". */
+void
+cdx_fwd_cg_report(struct sbuf *sb)
+{
+	int i;
+
+	for (i = 0; i < CDX_MAX_ETH_PORTS; i++) {
+		if (cdx_fwd_tx_cg[i] == NULL)
+			continue;
+		sbuf_printf(sb, "%s%s:%jd", sbuf_len(sb) > 0 ? " " : "",
+		    cdx_fwd_tx_name[i], (intmax_t)qman_cg_count(cdx_fwd_tx_cg[i]));
+	}
+}
 
 static uint32_t
 cdx_fwd_cg_frames(uint32_t speed, uint32_t mtu)
@@ -276,6 +293,8 @@ dpa_add_eth_if(char *name, struct _itf *itf, struct _itf *phys_itf)
 			if (port < CDX_MAX_ETH_PORTS) {
 				cdx_fwd_tx_fqr[port] = fqr;
 				cdx_fwd_tx_cg[port] = cg;
+				strlcpy(cdx_fwd_tx_name[port], name,
+				    IF_NAME_SIZE);
 			}
 
 			DPA_INFO("cdx: devman: %s fwd_tx_fqid=0x%x..0x%x "

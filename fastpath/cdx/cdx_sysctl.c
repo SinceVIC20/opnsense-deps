@@ -22,6 +22,7 @@
 #include <sys/systm.h>
 #include <sys/sysctl.h>
 #include <sys/module.h>
+#include <sys/sbuf.h>
 
 #include "portdefs.h"
 #include "cdx.h"
@@ -45,6 +46,21 @@ static struct sysctl_oid	*cdx_sysctl_tree;
 /* Counters exposed via sysctl */
 static unsigned long cdx_stat_fci_commands;
 static unsigned long cdx_stat_timer_ticks;
+
+void cdx_fwd_cg_report(struct sbuf *sb);
+
+static int
+sysctl_cdx_fwd_queued(SYSCTL_HANDLER_ARGS)
+{
+	struct sbuf sb;
+	int error;
+
+	sbuf_new_for_sysctl(&sb, NULL, 128, req);
+	cdx_fwd_cg_report(&sb);
+	error = sbuf_finish(&sb);
+	sbuf_delete(&sb);
+	return (error);
+}
 
 /* sysctl handler for active connections — reads the global atomic */
 static int
@@ -156,6 +172,12 @@ cdx_sysctl_init(void)
 	    CTLTYPE_ULONG | CTLFLAG_RD | CTLFLAG_MPSAFE,
 	    NULL, 0, sysctl_cdx_hc_delete_quarantine_pending, "LU",
 	    "Current delete-quarantine backlog size");
+
+	SYSCTL_ADD_PROC(&cdx_sysctl_ctx,
+	    SYSCTL_CHILDREN(stats_node), OID_AUTO, "fwd_queued",
+	    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE,
+	    NULL, 0, sysctl_cdx_fwd_queued, "A",
+	    "Frames waiting in each port's forwarding queues");
 }
 
 void
