@@ -47,7 +47,7 @@ static struct sysctl_oid	*cdx_sysctl_tree;
 static unsigned long cdx_stat_fci_commands;
 static unsigned long cdx_stat_timer_ticks;
 
-void cdx_fwd_cg_report(struct sbuf *sb);
+void cdx_fwd_cg_report(struct sbuf *sb, bool hits);
 
 static int
 sysctl_cdx_fwd_queued(SYSCTL_HANDLER_ARGS)
@@ -56,7 +56,7 @@ sysctl_cdx_fwd_queued(SYSCTL_HANDLER_ARGS)
 	int error;
 
 	sbuf_new_for_sysctl(&sb, NULL, 128, req);
-	cdx_fwd_cg_report(&sb);
+	cdx_fwd_cg_report(&sb, arg2 != 0);
 	error = sbuf_finish(&sb);
 	sbuf_delete(&sb);
 	return (error);
@@ -178,6 +178,12 @@ cdx_sysctl_init(void)
 	    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE,
 	    NULL, 0, sysctl_cdx_fwd_queued, "A",
 	    "Frames waiting in each port's forwarding queues");
+
+	SYSCTL_ADD_PROC(&cdx_sysctl_ctx,
+	    SYSCTL_CHILDREN(stats_node), OID_AUTO, "fwd_limit_hits",
+	    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE,
+	    NULL, 1, sysctl_cdx_fwd_queued, "A",
+	    "Times each port's forwarding queues entered or left their limit");
 }
 
 void
