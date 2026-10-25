@@ -41,6 +41,8 @@
 /* From if_dtsec.h — forward declare to avoid pulling in NCSW port types */
 void	dtsec_rm_buf_free_external(uint8_t bpid, void *buf);
 void	dtsec_rm_pool_rx_refill_bpid(uint8_t bpid);
+bool	dtsec_rm_rx_cpu_admit(uint8_t bpid, void *buf);
+void	dtsec_rm_rx_cpu_done(uint8_t bpid);
 void	*dtsec_rm_rx_cg(if_t ifp);
 
 /* NCSW types (t_Handle) */
@@ -129,8 +131,10 @@ cdx_dist_mext_free(struct mbuf *m)
 
 	buf = m->m_ext.ext_arg1;
 	bpid = (uint8_t)(uintptr_t)m->m_ext.ext_arg2;
-	if (buf != NULL)
+	if (buf != NULL) {
 		dtsec_rm_buf_free_external(bpid, buf);
+		dtsec_rm_rx_cpu_done(bpid);
+	}
 }
 
 /*
@@ -189,9 +193,17 @@ cdx_dist_fq_rx_callback(t_Handle app, t_Handle qm_fqr,
 		if_t ifp = (if_t)app;
 		struct mbuf *m;
 
+		/* Past the port's share the buffer goes back to its pool. */
+		if (!dtsec_rm_rx_cpu_admit(frame->bpid, frame_va)) {
+			dtsec_rm_pool_rx_refill_bpid(frame->bpid);
+			return (e_RX_STORE_RESPONSE_CONTINUE);
+		}
+
 		m = m_gethdr(M_NOWAIT, MT_HEADER);
-		if (m == NULL)
+		if (m == NULL) {
+			dtsec_rm_rx_cpu_done(frame->bpid);
 			goto drop;
+		}
 
 		m_extadd(m, frame_va, CDX_RX_BUFFER_SIZE,
 		    cdx_dist_mext_free, frame_va,
