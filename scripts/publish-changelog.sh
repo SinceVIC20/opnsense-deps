@@ -69,6 +69,12 @@ for name in sorted(os.listdir(notes), key=lambda n: [int(x) for x in re.findall(
             out.append("<p>" + html.escape(" ".join(rows)) + "</p>")
     open(os.path.join(cl, version + ".htm"), "w").write("".join(out))
     open(os.path.join(cl, version + ".txt"), "w").write(text)
+    # The firmware page strips "_" from the version before opening the notes,
+    # so 26.7.7_16 is looked up as 26.7.716. Keep a copy under that name too.
+    for ext in (".htm", ".txt"):
+        alias = os.path.join(cl, version.replace("_", "") + ext)
+        if "_" in version and not os.path.exists(alias):
+            open(alias, "w").write(open(os.path.join(cl, version + ext)).read())
 
     index = [e for e in index if e["version"] != version]
     index.append({"series": ".".join(version.split(".")[:2]), "version": version,
