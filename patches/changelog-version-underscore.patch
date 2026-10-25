@@ -1,0 +1,27 @@
+From 532b6b4301d8cfb71337dc919abb868b6aee0785 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Sun, 25 Oct 2026 11:59:31 -0700
+Subject: [PATCH] firmware: allow underscore in changelog version
+
+Release versions such as 26.7.7_16 lost the underscore before the
+changelog lookup, so their notes never opened.
+---
+ src/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php b/src/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php
+index 614a1d7d9a..491c6c803d 100644
+--- a/src/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php
++++ b/src/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php
+@@ -85,7 +85,7 @@ class SanitizeFilter
+ 
+     protected function filter_version($input)
+     {
+-        return preg_replace('/[^0-9a-zA-Z\.]/', '', $input);
++        return preg_replace('/[^0-9a-zA-Z\._]/', '', $input);
+     }
+ 
+     protected function filter_query($input)
+-- 
+2.50.1 (Apple Git-155)
+
