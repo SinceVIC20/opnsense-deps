@@ -1,0 +1,6 @@
+date: 2026-10-26
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It fixes two offload engine bugs, one that could crash the router while it starts and one that could let received traffic overwrite unrelated memory, and makes upgrade reports clearer.
+
+- offload: since 26.7.7_17 each 10G port asks the offload engine for a 72 KB receive FIFO, 28 tasks and 16 DMA channels, and if the engine can't fit them it should fall back to a 48 KB FIFO with the default 14 tasks and 8 DMA channels. Cleaning up the refused attempt read memory it had just released, which would crash the router at boot instead. It now falls back as intended.
+- offload: each port's receive buffers (about 9.6 KB, three memory pages each) are now always placed in physically adjacent memory. Before, if memory was fragmented, a received frame that crossed from one page to the next could be written into an unrelated page, corrupting both the frame and that memory. This has not been seen in practice, but could happen after long uptimes.
+- updates: when an update only reinstalls the same kernel version, its report now says "kernel reinstall succeeded, version unchanged" instead of "upgrade succeeded", and a router still on 26.1 is reminded to choose Upgrade to move to 26.7.
