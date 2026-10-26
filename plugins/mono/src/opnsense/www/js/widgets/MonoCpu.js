@@ -32,12 +32,19 @@ export default class MonoCpu extends BaseWidget {
         this.resizeHandles = "e, w";
         this.configurable = true;
         this.graphs = ['cores', 'total', 'intr', 'user', 'sys'];
-        // The Connections gauge's green and orange, with a raspberry red and a blue to match.
-        this.coreColors = ['#B83A6B', '#3D7FD1', '#5E9C4A', '#D94F00'];
+        // The Connections gauge's green and orange, with a violet and school-bus yellow.
+        this.coreColors = ['#A97FDB', '#FFD800', '#5E9C4A', '#D94F00'];
+        // See-through lines, so where two overlap both still show; the light yellow solid.
+        this.coreAlpha = [0.7, 1, 0.7, 0.7];
         // Same as the Traffic widget: 20 s across, drawn 2 s behind.
         this.windowMillis = 20000;
         this.delayMillis = 2000;
         this.charts = [];
+    }
+
+    _rgba(hex, alpha) {
+        const n = parseInt(hex.slice(1), 16);
+        return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
     }
 
     // Keep the time across the full width fixed, whatever the width.
@@ -118,7 +125,7 @@ export default class MonoCpu extends BaseWidget {
         return $(`
         <div class="monocpu-type"></div>
         <div class="cpu-canvas-container">
-            ${graph('cores', 80, legend)}
+            ${graph('cores', 140, legend)}
             ${graph('total', 50)}
             ${graph('intr', 50)}
             ${graph('user', 50)}
@@ -138,7 +145,7 @@ export default class MonoCpu extends BaseWidget {
         });
 
         const cores = this.coreColors.map(() => new TimeSeries());
-        this._createChart('monocpu-usage-cores', cores.map((ts, i) => [ts, this.coreColors[i], 1.5]));
+        this._createChart('monocpu-usage-cores', cores.map((ts, i) => [ts, this._rgba(this.coreColors[i], this.coreAlpha[i]), 2]));
         let ts = {};
         this.graphs.filter(graph => graph !== 'cores').forEach((graph) => {
             ts[graph] = new TimeSeries();
