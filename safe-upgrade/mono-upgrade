@@ -169,12 +169,20 @@ report_ok()
 	# report_ok <from> <to>
 	TMP=$(mktemp)
 	{
-		echo "Mono upgrade succeeded"
+		# The same version again is a kernel reinstall, not an upgrade.
+		if [ "${1}" = "${2}" ]; then
+			echo "Mono kernel reinstall succeeded, version unchanged"
+		else
+			echo "Mono upgrade succeeded"
+		fi
 		echo "ID:     $(new_id)"
 		echo "Was:    ${1} ($(rootfs), $(armed_word))"
 		echo "Now:    ${2}"
 		echo "Time:   $(date '+%Y-%m-%d %H:%M')"
 		echo "Safety: $(safety_id)"
+		case "${2}" in
+		26.1*)	echo "Note:   Still on 26.1: choose Upgrade to move to 26.7." ;;
+		esac
 	} | sanitize > ${TMP}
 	queue_report ${TMP}
 	rm -f ${TMP}
