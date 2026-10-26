@@ -1,0 +1,10 @@
+date: 2026-10-26
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It keeps offloaded traffic flowing when a flood reaches the router, makes the per-port queue limits from the last release actually work, gives the 10G ports more room for line-rate bursts, and adds a new CPU widget.
+
+- offload: a flood of packets to the router itself could hold all of a port's receive buffers while it waited in the software queues (for example PPPoE's), so offloaded traffic on that port stopped until the flood ended. Frames for the router now use at most half of a port's buffers, so offloaded traffic keeps flowing. In a test with a flood on a 1G PPPoE link, a download kept 780-880 Mbit/s instead of dropping to almost nothing.
+- offload: the limits on frames waiting for the CPU and on offloaded frames waiting for a busy port, added in the last release, never took effect: their setup reached the hardware in the wrong byte order. They now work.
+- offload: the two 10G ports get a 72 KB receive FIFO and more of the offload engine's tasks and DMA channels, which cuts the receive errors seen at full 10G load to about a quarter. If the hardware can't fit them, a port falls back to the previous settings instead of failing. A few errors can still occur when one port carries 9 Gb/s or more in both directions at once.
+- offload: fixed the bookkeeping of the offload engine's FIFO memory, which counted part of it in the wrong units and could refuse a size that fits.
+- dashboard: a new CPU widget replaces the standard one, in the same place: a fixed 0-100 % scale, a line for each of the four cores, and the same 20-second time span as the Traffic widget. The standard widget can still be added from the widget list.
+- firmware: the release notes of versions like 26.7.7_16 now open in System, Firmware, Changelog. Before, the window stayed empty.
+- diagnostics: new counters for each port's receive buffers and queues (dev.dtsec.N.rx_* and dev.cdx.stats.fwd_queued), for checking drops if a problem is reported.
