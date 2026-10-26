@@ -60,7 +60,6 @@ extern t_Handle qman_fqr_create_ctx_cg(uint32_t fqids_num,
 extern t_Handle qman_cg_create(uint32_t frames);
 extern void qman_cg_free(t_Handle cg);
 extern int64_t qman_cg_count(t_Handle cg);
-extern u_int qman_cg_changes(t_Handle cg);
 extern t_Error qman_fqr_free(t_Handle fqr);
 extern uint32_t qman_fqr_get_counter(t_Handle fqr, uint32_t fqid_off,
     e_QmFqrCounters counter);
@@ -97,12 +96,9 @@ static t_Handle cdx_fwd_tx_fqr[CDX_MAX_ETH_PORTS];
 static t_Handle cdx_fwd_tx_cg[CDX_MAX_ETH_PORTS];
 static char cdx_fwd_tx_name[CDX_MAX_ETH_PORTS][IF_NAME_SIZE];
 
-/*
- * Per port, as "dtsec3:12 dtsec4:0": the frames its forwarding queues hold
- * now, or with hits the times they entered or left their limit.
- */
+/* Frames each port's forwarding queues hold now, as "dtsec3:12 dtsec4:0". */
 void
-cdx_fwd_cg_report(struct sbuf *sb, bool hits)
+cdx_fwd_cg_report(struct sbuf *sb)
 {
 	int i;
 
@@ -110,9 +106,7 @@ cdx_fwd_cg_report(struct sbuf *sb, bool hits)
 		if (cdx_fwd_tx_cg[i] == NULL)
 			continue;
 		sbuf_printf(sb, "%s%s:%jd", sbuf_len(sb) > 0 ? " " : "",
-		    cdx_fwd_tx_name[i], hits ?
-		    (intmax_t)qman_cg_changes(cdx_fwd_tx_cg[i]) :
-		    (intmax_t)qman_cg_count(cdx_fwd_tx_cg[i]));
+		    cdx_fwd_tx_name[i], (intmax_t)qman_cg_count(cdx_fwd_tx_cg[i]));
 	}
 }
 
