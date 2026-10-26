@@ -26,4 +26,16 @@ class StatusController extends ApiControllerBase
         }
         return $data;
     }
+
+    public function cpuStreamAction()
+    {
+        return $this->configdStream(
+            'mono cpu stream',
+            ['1'],
+            [
+                'Content-Type: text/event-stream',
+                'Cache-Control: no-cache'
+            ]
+        );
+    }
 }

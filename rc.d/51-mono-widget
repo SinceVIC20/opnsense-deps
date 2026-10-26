@@ -17,6 +17,7 @@ $widgets_dir = '/usr/local/opnsense/www/js/widgets';
 $widgets = [
     'mono' => ['Mono.js', '/var/db/mono-widget-added'],
     'monoconnections' => ['MonoConnections.js', '/var/db/mono-connections-widget-added'],
+    'monocpu' => ['MonoCpu.js', '/var/db/mono-cpu-widget-added'],
 ];
 
 foreach ($widgets as $id => [$file, $marker]) {
@@ -204,6 +205,30 @@ function insert_below_disk(array $layout)
     return $layout;
 }
 
+/*
+ * Swap the stock CPU widget for the Mono one in the same spot and size, in
+ * the wide list and every saved layout. Without the stock one, nothing.
+ */
+function swap_cpu(array $dashboard)
+{
+    if (!in_array('cpu', array_column($dashboard['widgets'], 'id'))) {
+        return null;
+    }
+    foreach ($dashboard['widgets'] as $i => $w) {
+        if ($w['id'] == 'cpu') {
+            $dashboard['widgets'][$i]['id'] = 'monocpu';
+        }
+    }
+    foreach ($dashboard['layouts'] ?? [] as $columns => $layout) {
+        if (isset($layout['cpu'])) {
+            $layout['monocpu'] = array_merge($layout['cpu'], ['id' => 'monocpu']);
+            unset($layout['cpu']);
+            $dashboard['layouts'][$columns] = $layout;
+        }
+    }
+    return $dashboard;
+}
+
 /* Put the gauge into the wide list and into a layout for every width. */
 function add_connections(array $dashboard)
 {
@@ -239,7 +264,14 @@ foreach ($mdl->user->iterateItems() as $node) {
             echo "{$name}: already has {$id}\n";
             continue;
         }
-        if ($id == 'monoconnections') {
+        if ($id == 'monocpu') {
+            $swapped = swap_cpu($dashboard);
+            if ($swapped === null) {
+                echo "{$name}: no stock cpu widget, not adding {$id}\n";
+                continue;
+            }
+            $dashboard = $swapped;
+        } elseif ($id == 'monoconnections') {
             $dashboard = add_connections($dashboard);
         } else {
             $dashboard['widgets'] = place_mono($dashboard['widgets']);

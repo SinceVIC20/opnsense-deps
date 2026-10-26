@@ -38,6 +38,7 @@
 /usr/local/opnsense/www/js/widgets/Metadata/Hwmon.xml
 @dir /usr/local/opnsense/scripts/mono
 /usr/local/opnsense/scripts/mono/connections.sh
+/usr/local/opnsense/scripts/mono/cpu.py
 /usr/local/opnsense/scripts/mono/status.py
 /usr/local/opnsense/scripts/mono/sfp.py
 /usr/local/opnsense/service/conf/actions.d/actions_mono.conf
@@ -50,5 +51,6 @@
 /usr/local/opnsense/mvc/app/library/OPNsense/System/Status/MonoShaperStatus.php
 /usr/local/opnsense/www/js/widgets/Mono.js
 /usr/local/opnsense/www/js/widgets/MonoConnections.js
+/usr/local/opnsense/www/js/widgets/MonoCpu.js
 /usr/local/opnsense/www/js/widgets/Metadata/Mono.xml
 /usr/local/etc/inc/plugins.inc.d/mono.inc

@@ -31,4 +31,21 @@
             <cpu>CPU</cpu>
         </translations>
     </monoconnections>
+    <monocpu>
+        <filename>MonoCpu.js</filename>
+        <endpoints>
+            <endpoint>/api/mono/status/cpu_stream</endpoint>
+            <endpoint>/api/diagnostics/cpu_usage/*</endpoint>
+        </endpoints>
+        <translations>
+            <title>CPU</title>
+            <cores>Per core</cores>
+            <cpu>CPU</cpu>
+            <total>Total</total>
+            <user>User</user>
+            <sys>System</sys>
+            <intr>Interrupt</intr>
+            <graphs>Graphs</graphs>
+        </translations>
+    </monocpu>
 </metadata>
