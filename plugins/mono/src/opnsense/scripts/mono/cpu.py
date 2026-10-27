@@ -6,19 +6,25 @@ CPU as user, system, interrupt and total, in percent.
 """
 
 import argparse
+import ctypes
 import json
 import os
-import subprocess
 import sys
 import time
 
+# By name: ctypes.util.find_library() would run the C compiler to find it.
+_libc = ctypes.CDLL('libc.so.7', use_errno=True)
+
 
 def cp_times():
-    # Five counters per core: user, nice, system, interrupt, idle.
-    out = subprocess.run(['/sbin/sysctl', '-n', 'kern.cp_times'],
-                         capture_output=True, text=True).stdout.split()
-    values = [int(x) for x in out]
-    return [values[i:i + 5] for i in range(0, len(values), 5)]
+    # Five counters per core: user, nice, system, interrupt, idle. Read in
+    # this process: starting sysctl(8) every second costs more than the rest.
+    size = ctypes.c_size_t(0)
+    _libc.sysctlbyname(b'kern.cp_times', None, ctypes.byref(size), None, 0)
+    values = (ctypes.c_long * (size.value // ctypes.sizeof(ctypes.c_long)))()
+    if _libc.sysctlbyname(b'kern.cp_times', values, ctypes.byref(size), None, 0) != 0:
+        raise OSError(ctypes.get_errno(), 'kern.cp_times')
+    return [list(values[i:i + 5]) for i in range(0, len(values), 5)]
 
 
 def percent(part, whole):
