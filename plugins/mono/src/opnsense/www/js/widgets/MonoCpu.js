@@ -152,6 +152,7 @@ export default class MonoCpu extends BaseWidget {
             this._createChart(`monocpu-usage-${graph}`, [[ts[graph], '#d94f00', 3]]);
         });
 
+        this.series = cores.concat(Object.values(ts));
         this._fitTime();
 
         super.openEventSource('/api/mono/status/cpu_stream', (event) => {
@@ -169,6 +170,15 @@ export default class MonoCpu extends BaseWidget {
                 ts[graph].append(date, data[graph]);
             });
         });
+    }
+
+    onVisibilityChanged(visible) {
+        // Nothing was sampled while hidden. Start the lines again instead of
+        // drawing a curve across the gap to the first new sample.
+        if (visible) {
+            (this.series || []).forEach(ts => ts.clear());
+        }
+        super.onVisibilityChanged(visible);
     }
 
     onWidgetResize(elem, width, height) {
