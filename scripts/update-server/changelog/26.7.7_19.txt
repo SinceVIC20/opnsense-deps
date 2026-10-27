@@ -1,0 +1,11 @@
+date: 2026-10-27
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It lets busy 10G ports drop far fewer forwarded frames, cuts the firewall software's own background CPU use by more than two thirds, and brings a new Traffic Graph to the dashboard.
+
+- offload: a 10G port's forwarding queues held only 512 frames, about 0.6 ms at line rate, so under full TCP load they often overflowed and dropped frames. They now hold 1621 frames (2 ms), and in testing TCP retransmissions fell by 96%. 1G ports are unchanged.
+- updates: this build's changes to OPNsense's own files now reach routers that are already installed, and are applied again after every OPNsense core update. Before, they only reached new images, so the 26.7.7_17 fix for release notes that opened blank never arrived; it does now.
+- firewall: with scheduled rules, the firewall reloaded every 15 minutes; it now reloads only when a schedule's time range starts or ends, so rules also switch on time.
+- firewall: aliases are refreshed only as often as they can change (hostnames at the resolve interval, URL, GeoIP and ASN tables hourly) instead of every minute, aliases of plain addresses need no refresh at all, and each refresh takes half the CPU it did.
+- dashboard: widgets no longer refresh in a hidden or minimised tab, slow-changing ones refresh less often, refreshes are spread out instead of all at once, and most no longer start a script each time. A visible dashboard now costs a fraction of the CPU it did, and a hidden one none.
+- dashboard: a new Traffic Graph shows one interface at a time on one full-height graph, on a scale that fits the traffic or a logarithmic one. Drag the interface names into any order, choose which appear with the cog, and read the rates at the line down the graph. The button under the link switches back to the original graphs.
+- dashboard: a camera button on the Traffic Graph and CPU widgets copies a picture of the widget for pasting into a chat and saves it as a PNG.
+- system: the boot partition check runs daily and at boot instead of every 5 minutes, and the listener for configuration changes no longer wakes twice a second.
