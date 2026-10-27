@@ -134,6 +134,17 @@ export default class MonoCpu extends BaseWidget {
     }
 
     async onMarkupRendered() {
+        // A picture button where the Traffic widget has its link, for sharing
+        // the graphs; the dashboard's own code does the drawing.
+        if (typeof this._saveImage === 'function') {
+            const button = $(`<div class="link-handle"><a href="#"><i class="fa fa-camera fa-xs" title="${this.translations.image}"></i></a></div>`);
+            button.find('a').on('click', (event) => {
+                event.preventDefault();
+                this._saveImage(button.find('i')[0]);
+            });
+            $(`#${this.id}-title`).siblings('.widget-command-container').prepend(button);
+        }
+
         const data = await this.ajaxCall('/api/diagnostics/cpu_usage/getcputype');
         $('.monocpu-type').text(data);
 

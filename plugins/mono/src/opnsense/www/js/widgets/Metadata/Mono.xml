@@ -46,6 +46,7 @@
             <sys>System</sys>
             <intr>Interrupt</intr>
             <graphs>Graphs</graphs>
+            <image>Copy and save a picture of this widget</image>
         </translations>
     </monocpu>
 </metadata>
