@@ -83,8 +83,11 @@ static t_Handle cdx_fwd_tx_fqr[CDX_MAX_ETH_PORTS];
  * the port they came in on. A port paused by flow control could hold that
  * whole pool, so each port's queues share a frame limit, sized as in ASK
  * (9abae8f): 2 ms of the largest frames at link speed, never fewer than
- * two 64 KiB bursts of standard frames, never more than 512, a quarter of
- * an incoming port's 2048-buffer pool (ASK's 1280 fits its larger pool).
+ * two 64 KiB bursts of standard frames, never more than 2048, an incoming
+ * port's pool. A 10G port gets 1621 standard frames and leaves the
+ * incoming port a fifth of its buffers. TCP keeps several hundred frames
+ * queued on a busy 10G port, so a limit of 512 tail-dropped thousands of
+ * frames per second at line rate.
  */
 #define	CDX_FWD_QUEUE_US	2000
 #define	CDX_FWD_MIN_BYTES	(64 * 1024)
@@ -92,7 +95,7 @@ static t_Handle cdx_fwd_tx_fqr[CDX_MAX_ETH_PORTS];
 #define	CDX_FWD_VLAN_ETH_HLEN	18
 #define	CDX_FWD_STD_MTU		1500
 #define	CDX_FWD_BURST_FRAMES	128
-#define	CDX_FWD_MAX_FRAMES	512
+#define	CDX_FWD_MAX_FRAMES	2048
 static t_Handle cdx_fwd_tx_cg[CDX_MAX_ETH_PORTS];
 static char cdx_fwd_tx_name[CDX_MAX_ETH_PORTS][IF_NAME_SIZE];
 
