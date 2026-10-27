@@ -2,4 +2,6 @@
 
 # Send waiting upgrade reports in the background, once the network is up.
 ls /var/db/mono-upgrade/outbox/*.txt > /dev/null 2>&1 && daemon -f -p /var/run/mono-report.pid /usr/local/sbin/mono-upgrade send
+# Set or release the boot partition's update holds for this boot.
+daemon -f /usr/local/sbin/mono-upgrade check
 exit 0

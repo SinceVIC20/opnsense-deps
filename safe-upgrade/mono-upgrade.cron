@@ -1,2 +1,3 @@
 # Holds kernel updates while the boot partition is too full, and lets them go again once it has room.
-*/5	*	*	*	*	root	/usr/local/sbin/mono-upgrade check > /dev/null 2>&1
+# Boot, package installs and the shutdown check cover the changes that matter; this catches the rest.
+37	4	*	*	*	root	/usr/local/sbin/mono-upgrade check > /dev/null 2>&1
