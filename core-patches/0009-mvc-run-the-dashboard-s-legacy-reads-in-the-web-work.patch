@@ -1,7 +1,7 @@
 From d8b4f6977fe09ba19aad00c40caf77b7f7e582f0 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 10:57:47 -0700
-Subject: [PATCH 09/12] mvc: run the dashboard's legacy reads in the web worker
+Subject: [PATCH 09/16] mvc: run the dashboard's legacy reads in the web worker
 
 Every dashboard refresh asked configd to start PHP or Python scripts for
 a few milliseconds of work each, and starting them cost far more than

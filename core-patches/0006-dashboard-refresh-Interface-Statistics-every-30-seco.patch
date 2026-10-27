@@ -1,7 +1,7 @@
 From c4882f3cc4e3e2f62ba98c07dd4deed72f2f4bb7 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 10:12:44 -0700
-Subject: [PATCH 06/12] dashboard: refresh Interface Statistics every 30
+Subject: [PATCH 06/16] dashboard: refresh Interface Statistics every 30
  seconds
 
 It shows totals, and the Traffic widget already streams live rates.

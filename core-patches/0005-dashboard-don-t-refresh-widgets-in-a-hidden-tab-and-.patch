@@ -1,7 +1,7 @@
 From 4da87df1eea6c389c15f098b0d45eb4b4834ea57 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 09:56:36 -0700
-Subject: [PATCH 05/12] dashboard: don't refresh widgets in a hidden tab, and
+Subject: [PATCH 05/16] dashboard: don't refresh widgets in a hidden tab, and
  slow the heavy ones
 
 Every widget kept refreshing while the dashboard sat in a background or

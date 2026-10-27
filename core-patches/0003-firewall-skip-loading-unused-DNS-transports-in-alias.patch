@@ -1,7 +1,7 @@
 From 5b6eafe489af70cc8bec04dfc45035321f8d10cb Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 08:48:47 -0700
-Subject: [PATCH 03/12] firewall: skip loading unused DNS transports in alias
+Subject: [PATCH 03/16] firewall: skip loading unused DNS transports in alias
  updates
 
 The alias updater runs every minute and only uses plain DNS, but

@@ -1,7 +1,7 @@
 From 9ffe8a2f709b24bb35ee244acca1350353de209f Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 10:57:47 -0700
-Subject: [PATCH 10/12] services: check every service against one process list
+Subject: [PATCH 10/16] services: check every service against one process list
 
 The service list ran pgrep once or twice for each service. Read the
 process list once and answer every check from it, with the same rules

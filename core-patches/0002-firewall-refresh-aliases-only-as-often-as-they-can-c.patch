@@ -1,7 +1,7 @@
 From c9578e2dedcef16f2e350d312640a35c301b50af Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 09:29:28 -0700
-Subject: [PATCH 02/12] firewall: refresh aliases only as often as they can
+Subject: [PATCH 02/16] firewall: refresh aliases only as often as they can
  change
 
 The alias updater ran every minute whatever aliases were configured.

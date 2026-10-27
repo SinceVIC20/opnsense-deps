@@ -1,7 +1,7 @@
 From a7967d3f2912830cd382c4ef569d470eeec52094 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 10:12:43 -0700
-Subject: [PATCH 04/12] configd: read sysctl values inline
+Subject: [PATCH 04/16] configd: read sysctl values inline
 
 Reading sysctl values started a Python script, which then started
 sysctl(8), on every System Information, Memory and CPU widget refresh.

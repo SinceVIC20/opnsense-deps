@@ -1,7 +1,7 @@
 From 513d78f12f84dc900ce3312ef4b1f8301ebc93f8 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 10:22:20 -0700
-Subject: [PATCH 07/12] dashboard: spread widget refreshes out over time
+Subject: [PATCH 07/16] dashboard: spread widget refreshes out over time
 
 Widgets loaded together kept refreshing on the same second, so every 30
 seconds the firewall started about ten PHP and Python scripts at once,
