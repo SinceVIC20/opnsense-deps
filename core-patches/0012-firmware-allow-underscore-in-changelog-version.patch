@@ -1,7 +1,7 @@
-From 532b6b4301d8cfb71337dc919abb868b6aee0785 Mon Sep 17 00:00:00 2001
+From 5869abbeaa23b3edf989bfe5ceddb679c9dfcdaa Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Sun, 25 Oct 2026 11:59:31 -0700
-Subject: [PATCH] firmware: allow underscore in changelog version
+Subject: [PATCH 12/12] firmware: allow underscore in changelog version
 
 Release versions such as 26.7.7_16 lost the underscore before the
 changelog lookup, so their notes never opened.

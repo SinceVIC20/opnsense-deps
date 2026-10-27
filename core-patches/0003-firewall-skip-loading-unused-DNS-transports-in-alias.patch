@@ -1,0 +1,35 @@
+From 5b6eafe489af70cc8bec04dfc45035321f8d10cb Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Tue, 27 Oct 2026 08:48:47 -0700
+Subject: [PATCH 03/12] firewall: skip loading unused DNS transports in alias
+ updates
+
+The alias updater runs every minute and only uses plain DNS, but
+importing dnspython loaded its DNS over QUIC and HTTPS support and trio
+whenever those packages are installed, as they are by the FreeBSD port.
+That took about half of every run, and trio also ran the C compiler and
+linker to find a library. Turn those features off before dnspython
+loads: a run now takes about 1 s of CPU instead of 2.
+---
+ src/opnsense/scripts/filter/lib/__init__.py | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/opnsense/scripts/filter/lib/__init__.py b/src/opnsense/scripts/filter/lib/__init__.py
+index ffad4727f5..9d6d5585ac 100755
+--- a/src/opnsense/scripts/filter/lib/__init__.py
++++ b/src/opnsense/scripts/filter/lib/__init__.py
+@@ -24,6 +24,11 @@
+     POSSIBILITY OF SUCH DAMAGE.
+ """
+ import asyncio
++import dns._features
++# Plain DNS only: skip loading DNS over QUIC/HTTPS and trio, which takes
++# most of the start-up time of every run when those packages are installed.
++for _feature in ('doq', 'doh', 'trio'):
++    dns._features.force(_feature, False)
+ import dns.resolver
+ import ipaddress
+ import itertools
+-- 
+2.50.1 (Apple Git-155)
+

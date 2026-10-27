@@ -1,0 +1,66 @@
+From a7967d3f2912830cd382c4ef569d470eeec52094 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Tue, 27 Oct 2026 10:12:43 -0700
+Subject: [PATCH 04/12] configd: read sysctl values inline
+
+Reading sysctl values started a Python script, which then started
+sysctl(8), on every System Information, Memory and CPU widget refresh.
+Run sysctl(8) directly from configd instead, with the same output.
+---
+ .../service/conf/actions.d/actions_system.conf    |  6 +++---
+ src/opnsense/service/modules/actions/inline.py    | 15 +++++++++++++++
+ 2 files changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/src/opnsense/service/conf/actions.d/actions_system.conf b/src/opnsense/service/conf/actions.d/actions_system.conf
+index 31317e1a1b..f0376d66f0 100644
+--- a/src/opnsense/service/conf/actions.d/actions_system.conf
++++ b/src/opnsense/service/conf/actions.d/actions_system.conf
+@@ -46,9 +46,9 @@ type:script_output
+ message:Gather available sysctl information
+ 
+ [sysctl.values]
+-command:/usr/local/opnsense/scripts/system/sysctl.py
+-parameters:--values %s
+-type:script_output
++command:sysctl.values
++parameters:%s
++type:inline
+ message:Get sysctl value(s)
+ 
+ [sysctl.defaults]
+diff --git a/src/opnsense/service/modules/actions/inline.py b/src/opnsense/service/modules/actions/inline.py
+index 325a7151c4..17bd27159b 100644
+--- a/src/opnsense/service/modules/actions/inline.py
++++ b/src/opnsense/service/modules/actions/inline.py
+@@ -23,6 +23,8 @@
+     ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+     POSSIBILITY OF SUCH DAMAGE.
+ """
++import re
++import subprocess
+ import traceback
+ from .. import template
+ from .. import config
+@@ -86,6 +88,19 @@ class Action(BaseAction):
+                     return 'OK'
+                 else:
+                     return 'ERR'
++            elif self.command == 'sysctl.values':
++                # read here instead of starting a script for every dashboard
++                # refresh, output as scripts/system/sysctl.py --values
++                import json
++                result = {}
++                names = [x for x in act_parameters.split(',') if re.match(r'^[\w.%-]+$', x)]
++                if names:
++                    sp = subprocess.run(['/sbin/sysctl', '-i'] + names, capture_output=True, text=True)
++                    for line in sp.stdout.split("\n"):
++                        parts = line.strip().split(": ", 1)
++                        if len(parts) > 1:
++                            result[parts[0]] = parts[1].strip()
++                return json.dumps(result)
+             elif self.command == 'configd.lookup':
+                 from ..processhandler import ActionHandler
+                 act_handler = ActionHandler()
+-- 
+2.50.1 (Apple Git-155)
+

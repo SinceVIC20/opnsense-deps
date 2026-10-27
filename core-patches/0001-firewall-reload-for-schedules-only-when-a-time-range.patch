@@ -1,0 +1,68 @@
+From 7e5ed5f9a4fcaf7e8cb143b89b93bf1f152f6794 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Mon, 26 Oct 2026 22:35:45 -0700
+Subject: [PATCH 01/12] firewall: reload for schedules only when a time range
+ starts or ends
+
+With any scheduled rule, the filter was fully reloaded at :01, :16, :31
+and :46 of every hour, 96 times a day, although a schedule only changes
+a rule when one of its time ranges starts or ends, or at midnight for
+its days. Each reload is one to two seconds of heavy CPU and memory
+work, which on small routers can cost forwarded packets.
+
+Reload at those minutes instead, so rules also switch on time rather
+than up to 15 minutes late. An end of 23:59, the GUI's end of day, is
+covered by midnight. Times that cannot be parsed keep the old interval.
+---
+ src/etc/inc/plugins.inc.d/pf.inc | 35 +++++++++++++++++++++++++++++++-
+ 1 file changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/src/etc/inc/plugins.inc.d/pf.inc b/src/etc/inc/plugins.inc.d/pf.inc
+index 986e4839a0..e9df54237f 100644
+--- a/src/etc/inc/plugins.inc.d/pf.inc
++++ b/src/etc/inc/plugins.inc.d/pf.inc
+@@ -61,7 +61,40 @@ function pf_cron()
+     $jobs = [];
+ 
+     if ((new OPNsense\Firewall\Filter(true))->hasSchedule()) {
+-        $jobs[]['autocron'] = ['/usr/bin/logger "reload filter for configured schedules" ; /usr/local/etc/rc.filter_configure', '1,16,31,46'];
++        $cmd = '/usr/bin/logger "reload filter for configured schedules" ; /usr/local/etc/rc.filter_configure';
++        /*
++         * A schedule only changes a rule when a time range starts or ends,
++         * or at midnight for its days, so reload at those minutes only.
++         * An end of 23:59 is how the GUI says end of day and is covered by
++         * midnight. Keep the old 15 minute interval for times we cannot parse.
++         */
++        $hours = [0 => [0]];
++        foreach ($config['schedules']['schedule'] ?? [] as $sched) {
++            foreach ($sched['timerange'] ?? [] as $timeday) {
++                if (empty($timeday['hour'])) {
++                    continue;
++                }
++                foreach (explode('-', $timeday['hour']) as $i => $time) {
++                    if (!preg_match('/^\s*(\d{1,2}):(\d{1,2})\s*$/', $time, $m) || $m[1] > 24 || $m[2] > 59) {
++                        $hours = null;
++                        break 3;
++                    }
++                    if ($i == 1 && $m[1] == 23 && $m[2] == 59) {
++                        continue;
++                    }
++                    $hours[(int)$m[2]][] = (int)$m[1] % 24;
++                }
++            }
++        }
++        if ($hours === null) {
++            $jobs[]['autocron'] = [$cmd, '1,16,31,46'];
++        } else {
++            foreach ($hours as $minute => $list) {
++                $list = array_unique($list);
++                sort($list);
++                $jobs[]['autocron'] = [$cmd, (string)$minute, implode(',', $list)];
++            }
++        }
+     }
+ 
+     /* bogons fetch always set in default config.xml */
+-- 
+2.50.1 (Apple Git-155)
+

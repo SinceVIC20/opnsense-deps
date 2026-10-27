@@ -1,0 +1,93 @@
+From 4da87df1eea6c389c15f098b0d45eb4b4834ea57 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Tue, 27 Oct 2026 09:56:36 -0700
+Subject: [PATCH 05/12] dashboard: don't refresh widgets in a hidden tab, and
+ slow the heavy ones
+
+Every widget kept refreshing while the dashboard sat in a background or
+minimised tab, each refresh starting PHP and Python scripts on the
+firewall: about 13 seconds of CPU a minute with a typical layout. Skip
+refreshes while the page is hidden and catch up when it is shown again,
+as streaming widgets already do. Refresh Interfaces every 60 seconds and
+Services and Gateways every 30, as their data changes rarely and each
+refresh is costly. Together this cuts a visible dashboard's cost by
+about two thirds and a hidden one's to nothing.
+---
+ src/opnsense/www/js/opnsense_widget_manager.js | 12 +++++++++++-
+ src/opnsense/www/js/widgets/Gateways.js        |  1 +
+ src/opnsense/www/js/widgets/Interfaces.js      |  1 +
+ src/opnsense/www/js/widgets/Services.js        |  1 +
+ 4 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/src/opnsense/www/js/opnsense_widget_manager.js b/src/opnsense/www/js/opnsense_widget_manager.js
+index 20d10d5032..814a9beff1 100644
+--- a/src/opnsense/www/js/opnsense_widget_manager.js
++++ b/src/opnsense/www/js/opnsense_widget_manager.js
+@@ -564,10 +564,19 @@ class WidgetManager  {
+ 
+         await tick();
+         const interval = setInterval(async () => {
+-            await tick();
++            // a dashboard in a background tab doesn't need fresh data
++            if (!document.hidden) {
++                await tick();
++            }
+         }, widget.tickTimeout * 1000);
+         // store the reference to the tick routine so we can clear it later on widget removal
+         this.widgetTickRoutines[widget.id] = interval;
++        // catch up as soon as the dashboard is shown again
++        document.addEventListener('visibilitychange', async () => {
++            if (!document.hidden && this.widgetTickRoutines[widget.id] === interval) {
++                await tick();
++            }
++        });
+     }
+ 
+     _clearError(widgetId) {
+@@ -884,6 +893,7 @@ class WidgetManager  {
+ 
+     _onWidgetClose(id) {
+         clearInterval(this.widgetTickRoutines[id]);
++        delete this.widgetTickRoutines[id];
+         if (id in this.widgetClasses) this.widgetClasses[id].onWidgetClose();
+         this.grid.removeWidget(this.widgetHTMLElements[id]);
+         if (id in this.loadedModules) this.moduleDiff.push(id);
+diff --git a/src/opnsense/www/js/widgets/Gateways.js b/src/opnsense/www/js/widgets/Gateways.js
+index b05f7ec765..98a0004639 100644
+--- a/src/opnsense/www/js/widgets/Gateways.js
++++ b/src/opnsense/www/js/widgets/Gateways.js
+@@ -27,6 +27,7 @@
+ export default class Gateways extends BaseTableWidget {
+     constructor(config) {
+         super(config);
++        this.tickTimeout = 30; // dpinger averages over longer than this
+ 
+         this.configurable = true;
+         this.cachedGateways = []; // prevent fetch when loading options
+diff --git a/src/opnsense/www/js/widgets/Interfaces.js b/src/opnsense/www/js/widgets/Interfaces.js
+index de4104399a..211689824a 100644
+--- a/src/opnsense/www/js/widgets/Interfaces.js
++++ b/src/opnsense/www/js/widgets/Interfaces.js
+@@ -27,6 +27,7 @@
+ export default class Interfaces extends BaseTableWidget {
+     constructor() {
+         super();
++        this.tickTimeout = 60; // addresses and link state rarely change
+     }
+ 
+     getGridOptions() {
+diff --git a/src/opnsense/www/js/widgets/Services.js b/src/opnsense/www/js/widgets/Services.js
+index f5c3f1b7d2..727d70567a 100644
+--- a/src/opnsense/www/js/widgets/Services.js
++++ b/src/opnsense/www/js/widgets/Services.js
+@@ -27,6 +27,7 @@
+ export default class Services extends BaseTableWidget {
+     constructor() {
+         super();
++        this.tickTimeout = 30; // every refresh checks each service's processes
+         this.locked = false;
+     }
+ 
+-- 
+2.50.1 (Apple Git-155)
+

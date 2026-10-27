@@ -55,3 +55,5 @@
 /usr/local/opnsense/www/js/widgets/Metadata/Mono.xml
 /usr/local/etc/inc/plugins.inc.d/mono.inc
 /usr/local/share/mono-gateway/release
+/usr/local/sbin/mono-core-patches
+/usr/local/etc/rc.syshook.d/update/50-mono-core-patches

@@ -224,6 +224,8 @@ package: all
 	@mkdir -p ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/early
 	@mkdir -p ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/stop
 	@mkdir -p ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/start
+	@mkdir -p ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/update
+	@mkdir -p ${PKG_STAGEDIR}/usr/local/share/mono-gateway/core-patches
 	# Kernel modules
 	install -m 644 ${DISTDIR}/cdx.ko ${PKG_STAGEDIR}/boot/modules/
 	install -m 644 ${DISTDIR}/fci.ko ${PKG_STAGEDIR}/boot/modules/
@@ -275,13 +277,19 @@ package: all
 	# Release and commit for the dashboard widget, readable without running pkg
 	mkdir -p ${PKG_STAGEDIR}/usr/local/share/mono-gateway
 	echo "${PKG_VERSION} ${PKG_COMMIT}" > ${PKG_STAGEDIR}/usr/local/share/mono-gateway/release
+	# Changes to OPNsense core files, applied on the router and again after core updates
+	install -m 755 ${OPSDIR}/core-patches/mono-core-patches ${PKG_STAGEDIR}/usr/local/sbin/
+	install -m 755 ${OPSDIR}/core-patches/50-mono-core-patches ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/update/
+	install -m 644 ${OPSDIR}/core-patches/*.patch ${PKG_STAGEDIR}/usr/local/share/mono-gateway/core-patches/
+	cp ${PKG_METADIR}/plist ${BUILDDIR}/plist
+	cd ${OPSDIR}/core-patches && ls *.patch | sed 's|^|/usr/local/share/mono-gateway/core-patches/|' >> ${BUILDDIR}/plist
 	# Generate manifest with version, the commit it was built from and the safety package it pulls in
 	sed -e 's/%%VERSION%%/${PKG_VERSION}/' -e 's/%%COMMIT%%/${PKG_COMMIT}/' \
 	    -e 's/%%SAFETY_DEP_VERSION%%/${PKG_VERSION:S/_/./g}/' ${PKG_METADIR}/+MANIFEST \
 	    > ${PKG_STAGEDIR}/+MANIFEST
 	# Build package (ABI override for cross-compilation on amd64 host)
 	ABI=FreeBSD:15:aarch64 pkg create \
-	    -M ${PKG_STAGEDIR}/+MANIFEST -p ${PKG_METADIR}/plist \
+	    -M ${PKG_STAGEDIR}/+MANIFEST -p ${BUILDDIR}/plist \
 	    -r ${PKG_STAGEDIR} -o ${DISTDIR}/
 	@echo "==> Package: ${DISTDIR}/mono-gateway-${PKG_VERSION}.pkg"
 
@@ -348,7 +356,12 @@ image:
 			echo ">>> Applying patch: $(basename ${p})"
 			patch -d "${COREDIR}" -p1 -V none < "${p}"
 		done
-		git -C "${COREDIR}" add -f src/etc/pkg/
+		# the same changes the package applies on routers already running
+		for p in "${OPSDIR}"/core-patches/*.patch; do
+			echo ">>> Applying core change: $(basename ${p})"
+			patch -d "${COREDIR}" -p1 -V none < "${p}"
+		done
+		git -C "${COREDIR}" add -f src/etc/pkg/ src/opnsense/
 		git -C "${COREDIR}" commit -a -m "Mono Gateway customizations"
 	fi
 	cd ${SRCDIR} && git checkout ${OPS_BRANCH} && git pull || echo "    git pull skipped (NFS or no remote)"

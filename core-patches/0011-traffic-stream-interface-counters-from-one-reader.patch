@@ -1,0 +1,165 @@
+From 8eed8d7c7d2f0da0acf431f783aed23eddb3c7b3 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Tue, 27 Oct 2026 10:57:47 -0700
+Subject: [PATCH 11/12] traffic: stream interface counters from one reader
+
+The traffic stream started ifinfo every second for as long as a page
+showed it. Read the counters with getifaddrs() in one long-running
+helper and let the stream read a line per interval.
+---
+ .../scripts/interfaces/if_counters.py         | 113 ++++++++++++++++++
+ .../scripts/interfaces/traffic_stats.php      |  10 +-
+ 2 files changed, 119 insertions(+), 4 deletions(-)
+ create mode 100755 src/opnsense/scripts/interfaces/if_counters.py
+
+diff --git a/src/opnsense/scripts/interfaces/if_counters.py b/src/opnsense/scripts/interfaces/if_counters.py
+new file mode 100755
+index 0000000000..1f0f5fb6cf
+--- /dev/null
++++ b/src/opnsense/scripts/interfaces/if_counters.py
+@@ -0,0 +1,113 @@
++#!/usr/local/bin/python3
++
++"""
++    Copyright (c) 2026 SinceVIC20
++    All rights reserved.
++
++    Redistribution and use in source and binary forms, with or without
++    modification, are permitted provided that the following conditions are met:
++
++    1. Redistributions of source code must retain the above copyright notice,
++     this list of conditions and the following disclaimer.
++
++    2. Redistributions in binary form must reproduce the above copyright
++     notice, this list of conditions and the following disclaimer in the
++     documentation and/or other materials provided with the distribution.
++
++    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
++    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
++    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
++    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++    POSSIBILITY OF SUCH DAMAGE.
++
++    --------------------------------------------------------------------------------------
++    Print every interface's traffic counters as one JSON line, now and then
++    every <interval> seconds, with the names legacy_interface_stats() uses.
++    One process for a whole traffic stream instead of ifinfo every second.
++"""
++import ctypes
++import json
++import os
++import sys
++import time
++
++AF_LINK = 18
++
++
++class sockaddr(ctypes.Structure):
++    _fields_ = [('sa_len', ctypes.c_uint8), ('sa_family', ctypes.c_uint8)]
++
++
++class if_data(ctypes.Structure):
++    # struct if_data from net/if.h, up to the counters used here
++    _fields_ = [
++        ('ifi_type', ctypes.c_uint8), ('ifi_physical', ctypes.c_uint8),
++        ('ifi_addrlen', ctypes.c_uint8), ('ifi_hdrlen', ctypes.c_uint8),
++        ('ifi_link_state', ctypes.c_uint8), ('ifi_vhid', ctypes.c_uint8),
++        ('ifi_datalen', ctypes.c_uint16), ('ifi_mtu', ctypes.c_uint32),
++        ('ifi_metric', ctypes.c_uint32), ('ifi_baudrate', ctypes.c_uint64),
++        ('ifi_ipackets', ctypes.c_uint64), ('ifi_ierrors', ctypes.c_uint64),
++        ('ifi_opackets', ctypes.c_uint64), ('ifi_oerrors', ctypes.c_uint64),
++        ('ifi_collisions', ctypes.c_uint64), ('ifi_ibytes', ctypes.c_uint64),
++        ('ifi_obytes', ctypes.c_uint64),
++    ]
++
++
++class ifaddrs(ctypes.Structure):
++    pass
++
++
++ifaddrs._fields_ = [
++    ('ifa_next', ctypes.POINTER(ifaddrs)), ('ifa_name', ctypes.c_char_p),
++    ('ifa_flags', ctypes.c_uint), ('ifa_addr', ctypes.POINTER(sockaddr)),
++    ('ifa_netmask', ctypes.POINTER(sockaddr)), ('ifa_dstaddr', ctypes.POINTER(sockaddr)),
++    ('ifa_data', ctypes.c_void_p),
++]
++
++# by name: ctypes.util.find_library() would run the C compiler to find it
++libc = ctypes.CDLL('libc.so.7', use_errno=True)
++libc.getifaddrs.argtypes = [ctypes.POINTER(ctypes.POINTER(ifaddrs))]
++libc.freeifaddrs.argtypes = [ctypes.POINTER(ifaddrs)]
++
++
++def counters():
++    result = {}
++    head = ctypes.POINTER(ifaddrs)()
++    if libc.getifaddrs(ctypes.byref(head)) != 0:
++        return result
++    try:
++        ifa = head
++        while ifa:
++            item = ifa.contents
++            if item.ifa_addr and item.ifa_addr.contents.sa_family == AF_LINK and item.ifa_data:
++                data = ctypes.cast(item.ifa_data, ctypes.POINTER(if_data)).contents
++                result[item.ifa_name.decode()] = {
++                    'packets received': data.ifi_ipackets,
++                    'input errors': data.ifi_ierrors,
++                    'packets transmitted': data.ifi_opackets,
++                    'output errors': data.ifi_oerrors,
++                    'collisions': data.ifi_collisions,
++                    'bytes received': data.ifi_ibytes,
++                    'bytes transmitted': data.ifi_obytes,
++                }
++            ifa = item.ifa_next
++    finally:
++        libc.freeifaddrs(head)
++    return result
++
++
++if __name__ == '__main__':
++    interval = max(float(sys.argv[1]) if len(sys.argv) > 1 else 1.0, 1.0)
++    while True:
++        try:
++            print(json.dumps(counters()), flush=True)
++        except BrokenPipeError:
++            # the reader went away; stop without a second error on exit
++            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
++            sys.exit(0)
++        time.sleep(interval)
+diff --git a/src/opnsense/scripts/interfaces/traffic_stats.php b/src/opnsense/scripts/interfaces/traffic_stats.php
+index 2fe1341d69..a8b1e4a927 100755
+--- a/src/opnsense/scripts/interfaces/traffic_stats.php
++++ b/src/opnsense/scripts/interfaces/traffic_stats.php
+@@ -55,10 +55,13 @@ function map_ifs($ifs, $data)
+ 
+ if (isset($argv[1])) {
+     $intfs = legacy_config_get_interfaces(["virtual" => false, "enable" => true]);
+-    $prev = legacy_interface_stats();
++    /* one reader for the whole stream instead of starting ifinfo every second */
++    $reader = popen('/usr/local/opnsense/scripts/interfaces/if_counters.py ' .
++        escapeshellarg($argv[1] <= 1 ? 1 : $argv[1]), 'r');
++    $prev = json_decode(fgets($reader), true);
+ 
+-    while (1) {
+-        $interfaces = $tmp = legacy_interface_stats();
++    while (($line = fgets($reader)) !== false) {
++        $interfaces = $tmp = json_decode($line, true);
+ 
+         $keys = [
+             'bytes received',
+@@ -83,7 +86,6 @@ if (isset($argv[1])) {
+         echo 'event: message' . PHP_EOL;
+         echo 'data: ' . json_encode($result) . PHP_EOL . PHP_EOL;
+         flush();
+-        sleep($argv[1] <= 1 ? 1 : $argv[1]);
+     }
+ } else {
+     $result = array("interfaces" => array());
+-- 
+2.50.1 (Apple Git-155)
+

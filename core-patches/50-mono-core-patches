@@ -1,0 +1,6 @@
+#!/bin/sh
+
+# OPNsense core was updated, which put its original files back: apply the
+# Mono Gateway's changes to them again.
+/usr/local/sbin/mono-core-patches apply
+exit 0

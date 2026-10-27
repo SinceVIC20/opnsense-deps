@@ -23,5 +23,10 @@ licenselogic: "single"
 scripts: {
   post-install: <<EOD
 /usr/local/etc/rc.syshook.d/start/50-mono-motd %%VERSION%% || true
+/usr/local/sbin/mono-core-patches apply || true
+EOD
+  pre-deinstall: <<EOD
+# Removed, not upgraded: give OPNsense its own files back.
+[ -n "${PKG_UPGRADE}" ] || /usr/local/sbin/mono-core-patches revert || true
 EOD
 }

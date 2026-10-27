@@ -1,0 +1,68 @@
+From c9578e2dedcef16f2e350d312640a35c301b50af Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Tue, 27 Oct 2026 09:29:28 -0700
+Subject: [PATCH 02/12] firewall: refresh aliases only as often as they can
+ change
+
+The alias updater ran every minute whatever aliases were configured.
+Schedule it from the aliases instead: every minute only for MAC,
+dynamic IPv6 host and OpenVPN group aliases, at the DNS resolve
+interval for host aliases (5 minutes by default), hourly for GeoIP, ASN
+and URL tables, and not at all when no alias needs refreshing.
+Interface networks are already refreshed on every filter reload, which
+interface address changes trigger.
+---
+ src/etc/inc/plugins.inc.d/pf.inc | 37 +++++++++++++++++++++++++++-----
+ 1 file changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/src/etc/inc/plugins.inc.d/pf.inc b/src/etc/inc/plugins.inc.d/pf.inc
+index e9df54237f..876df4e48a 100644
+--- a/src/etc/inc/plugins.inc.d/pf.inc
++++ b/src/etc/inc/plugins.inc.d/pf.inc
+@@ -111,11 +111,38 @@ function pf_cron()
+             break;
+     }
+ 
+-    $jobs[]['autocron'] = [
+-        '/usr/local/bin/flock -n -E 0 -o /tmp/filter_update_tables.lock ' .
+-        '/usr/local/opnsense/scripts/filter/update_tables.py --quick',
+-        '*'
+-    ];
++    /*
++     * Refresh aliases as often as the most urgent one needs it, in minutes,
++     * matching the expiry update_tables.py gives each type.  Interface
++     * networks need no timer, a filter reload refreshes every alias.
++     */
++    $minutes = null;
++    foreach ((new \OPNsense\Firewall\Alias(true))->aliases->alias->iterateItems() as $alias) {
++        if ($alias->enabled->isEmpty()) {
++            continue;
++        }
++        $type = (string)$alias->type;
++        if (!$alias->updatefreq->isEmpty()) {
++            $need = $alias->updatefreq->asFloat() * 1440;
++        } elseif (in_array($type, ['mac', 'dynipv6host', 'authgroup'])) {
++            $need = 1;
++        } elseif ($type == 'host') {
++            $need = ($config['system']['aliasesresolveinterval'] ?? 300) / 60;
++        } elseif (in_array($type, ['geoip', 'asn'])) {
++            $need = 1440;
++        } else {
++            continue;
++        }
++        $minutes = min($minutes ?? $need, $need);
++    }
++    if ($minutes !== null) {
++        $minutes = max(1, (int)$minutes);
++        $jobs[]['autocron'] = [
++            '/usr/local/bin/flock -n -E 0 -o /tmp/filter_update_tables.lock ' .
++            '/usr/local/opnsense/scripts/filter/update_tables.py --quick',
++            $minutes == 1 ? '*' : ($minutes < 60 ? '*/' . $minutes : '0')
++        ];
++    }
+ 
+     return $jobs;
+ }
+-- 
+2.50.1 (Apple Git-155)
+

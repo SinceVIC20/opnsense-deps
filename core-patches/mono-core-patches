@@ -1,0 +1,183 @@
+#!/bin/sh
+#
+# Apply the Mono Gateway's changes to OPNsense core files, and again after
+# every core update, which puts the original files back.
+#   mono-core-patches apply    bring the files up to the whole series
+#   mono-core-patches revert   undo it, back to the files OPNsense shipped
+#   mono-core-patches status   show what is applied and whether it still is
+#
+# The patches build on each other, so they are worked out on a scratch copy
+# of the files they touch and installed together. A patch that doesn't fit
+# the installed core (that file changed upstream) is skipped and logged.
+
+DIR=/usr/local/share/mono-gateway/core-patches
+STATE=/var/db/mono-core-patches
+ROOT=/usr/local
+
+say()
+{
+	echo "${1}"
+	logger -t mono-core-patches "${1}"
+}
+
+patches()
+{
+	ls ${DIR}/*.patch 2> /dev/null | sort ${1}
+}
+
+# Files the series touches, relative to ROOT: a/src/opnsense/... is opnsense/...
+files()
+{
+	cat $(patches) | sed -n 's|^+++ b/src/||p' | sort -u
+}
+
+# Files the series creates; core updates leave them in place.
+created()
+{
+	cat $(patches) | awk '/^diff --git /{f = $4; sub("^b/src/", "", f)} /^new file mode/{print f}' | sort -u
+}
+
+# patch(1) can't set modes: make the files it created executable as git had them.
+modes()
+{
+	cat $(patches) | awk '/^diff --git /{f = $4; sub("^b/src/", "", f)} /^new file mode 100755/{print f}' |
+	    while read -r F; do
+		[ -f "${1}/${F}" ] && chmod 755 "${1}/${F}"
+	done
+}
+
+sums()
+{
+	(cd ${ROOT} && for F in $(files); do [ -f ${F} ] && md5 -r ${F}; done)
+}
+
+# Copy the touched files that exist to a scratch tree.
+scratch()
+{
+	TMP=$(mktemp -d /tmp/mono-core-patches.XXXXXX)
+	for F in $(files); do
+		[ -f ${ROOT}/${F} ] || continue
+		mkdir -p ${TMP}/$(dirname ${F})
+		cp -p ${ROOT}/${F} ${TMP}/${F}
+	done
+}
+
+# Put the scratch tree's files in place where they differ, and remove files
+# it no longer has. Sets CHANGED and CRON.
+install_scratch()
+{
+	CHANGED=0
+	CRON=0
+	modes ${TMP}
+	for F in $(files); do
+		if [ -f ${TMP}/${F} ]; then
+			cmp -s ${TMP}/${F} ${ROOT}/${F} && continue
+			mkdir -p ${ROOT}/$(dirname ${F})
+			cp -p ${TMP}/${F} ${ROOT}/${F}.new && mv ${ROOT}/${F}.new ${ROOT}/${F}
+		elif [ -f ${ROOT}/${F} ]; then
+			rm -f ${ROOT}/${F}
+		else
+			continue
+		fi
+		CHANGED=1
+		case ${F} in etc/inc/plugins.inc.d/*) CRON=1 ;; esac
+	done
+	# the GUI versions its scripts by this file's time
+	[ ${CHANGED} = 1 ] && touch ${ROOT}/opnsense/www/index.php
+	# Plugins schedule the cron jobs, and a core update has just regenerated
+	# them from its own files: write them again from these.
+	[ ${CRON} = 1 ] && /usr/local/sbin/pluginctl -s cron restart > /dev/null 2>&1
+}
+
+# Turn the scratch tree back into the files OPNsense shipped: undo the
+# longest run of patches that is applied, first to last.
+stock()
+{
+	K=$(patches | wc -l)
+	while [ ${K} -gt 0 ]; do
+		reverse "$(patches | head -n ${K} | sort -r)" && return 0
+		rm -rf ${TMP}; scratch
+		K=$((K - 1))
+	done
+	# none applied: only files we created can be left over from before
+	for F in $(created); do rm -f ${TMP}/${F}; done
+}
+
+# Reverse a list of patches on the scratch tree; fails if one doesn't reverse.
+reverse()
+{
+	for PATCH in ${1}; do
+		patch -s -f -p2 -d ${TMP} -R -E -V none < ${PATCH} > /dev/null 2>&1 || return 1
+	done
+}
+
+apply()
+{
+	mkdir -p ${STATE}
+	if [ -f ${STATE}/sums ] && [ "$(sums)" = "$(cat ${STATE}/sums)" ]; then
+		return 0	# as we left them
+	fi
+
+	scratch
+	stock
+	: > ${STATE}/applied
+	SKIPPED=0
+	for PATCH in $(patches); do
+		NAME=$(basename ${PATCH})
+		if patch -s -f -p2 -d ${TMP} -C < ${PATCH} > /dev/null 2>&1 &&
+		    patch -s -f -p2 -d ${TMP} -V none < ${PATCH} > /dev/null 2>&1; then
+			echo ${NAME} >> ${STATE}/applied
+		else
+			say "skipped ${NAME%.patch}: it does not fit this OPNsense version"
+			SKIPPED=$((SKIPPED + 1))
+		fi
+	done
+	install_scratch
+	rm -rf ${TMP}
+	if [ ${CHANGED} = 1 ]; then
+		say "applied $(wc -l < ${STATE}/applied | tr -d ' ') changes, ${SKIPPED} skipped"
+	fi
+	sums > ${STATE}/sums
+}
+
+revert()
+{
+	if [ -f ${STATE}/sums ] && [ "$(sums)" = "$(cat ${STATE}/sums)" ]; then
+		scratch
+		LIST=$(sed "s|^|${DIR}/|" ${STATE}/applied | sort -r)
+		if ! reverse "${LIST}"; then
+			rm -rf ${TMP}
+			say "revert failed: the files were changed by something else, nothing done"
+			return 1
+		fi
+		install_scratch
+		rm -rf ${TMP}
+	else
+		# A core update already put its files back; only ours are left.
+		for F in $(created); do rm -f ${ROOT}/${F}; done
+	fi
+	rm -rf ${STATE}
+	say "reverted the series"
+}
+
+case "${1}" in
+apply)
+	apply
+	;;
+revert)
+	revert
+	;;
+status)
+	if [ ! -f ${STATE}/sums ]; then
+		echo "not applied"
+	elif [ "$(sums)" = "$(cat ${STATE}/sums)" ]; then
+		echo "applied, files as left:"; sed 's/^/  /;s/\.patch$//' ${STATE}/applied
+	else
+		echo "applied before, but the files changed since (a core update?): run apply"
+	fi
+	;;
+*)
+	echo "usage: mono-core-patches apply | revert | status" >&2
+	exit 1
+	;;
+esac

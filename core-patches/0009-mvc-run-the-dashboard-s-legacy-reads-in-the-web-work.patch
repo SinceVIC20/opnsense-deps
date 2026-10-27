@@ -1,0 +1,300 @@
+From d8b4f6977fe09ba19aad00c40caf77b7f7e582f0 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Tue, 27 Oct 2026 10:57:47 -0700
+Subject: [PATCH 09/12] mvc: run the dashboard's legacy reads in the web worker
+
+Every dashboard refresh asked configd to start PHP or Python scripts for
+a few milliseconds of work each, and starting them cost far more than
+the work. Add OPNsense\Core\Legacy to load legacy includes and run
+legacy scripts in the web server's PHP worker, which already has PHP
+loaded, and use it for the Gateways, Services, Interface Statistics and
+Interfaces APIs and the IPsec VTI list. Their output is unchanged.
+---
+ .../OPNsense/Core/Api/ServiceController.php   | 12 +++-
+ .../Diagnostics/Api/TrafficController.php     |  5 +-
+ .../Interfaces/Api/OverviewController.php     | 72 ++++++++++++++++++-
+ .../Routing/Api/SettingsController.php        |  7 +-
+ .../mvc/app/library/OPNsense/Core/Legacy.php  | 72 +++++++++++++++++++
+ .../OPNsense/IPsec/FieldTypes/VTIField.php    |  5 +-
+ 6 files changed, 163 insertions(+), 10 deletions(-)
+ create mode 100644 src/opnsense/mvc/app/library/OPNsense/Core/Legacy.php
+
+diff --git a/src/opnsense/mvc/app/controllers/OPNsense/Core/Api/ServiceController.php b/src/opnsense/mvc/app/controllers/OPNsense/Core/Api/ServiceController.php
+index 52bc726a8e..102b2a8028 100644
+--- a/src/opnsense/mvc/app/controllers/OPNsense/Core/Api/ServiceController.php
++++ b/src/opnsense/mvc/app/controllers/OPNsense/Core/Api/ServiceController.php
+@@ -30,6 +30,7 @@ namespace OPNsense\Core\Api;
+ 
+ use OPNsense\Base\ApiControllerBase;
+ use OPNsense\Core\Backend;
++use OPNsense\Core\Legacy;
+ 
+ /**
+  * Class SessionsController
+@@ -43,7 +44,16 @@ class ServiceController extends ApiControllerBase
+      */
+     public function searchAction()
+     {
+-        $data = json_decode((new Backend())->configdRun('service list'), true);
++        /* polled by the dashboard: as pluginctl -S, without starting it */
++        Legacy::load(['config.inc', 'util.inc', 'system.inc', 'interfaces.inc', 'filter.inc', 'auth.inc']);
++        $data = [];
++        foreach (plugins_services() as $service) {
++            if (!empty($service['noshow'])) {
++                continue;
++            }
++            $service['status'] = service_message($service);
++            $data[] = $service;
++        }
+         $records = [];
+ 
+         if (!empty($data)) {
+diff --git a/src/opnsense/mvc/app/controllers/OPNsense/Diagnostics/Api/TrafficController.php b/src/opnsense/mvc/app/controllers/OPNsense/Diagnostics/Api/TrafficController.php
+index f0ebc1a321..8ceda4c4c9 100644
+--- a/src/opnsense/mvc/app/controllers/OPNsense/Diagnostics/Api/TrafficController.php
++++ b/src/opnsense/mvc/app/controllers/OPNsense/Diagnostics/Api/TrafficController.php
+@@ -31,6 +31,7 @@ namespace OPNsense\Diagnostics\Api;
+ use OPNsense\Base\ApiControllerBase;
+ use OPNsense\Core\Config;
+ use OPNsense\Core\Backend;
++use OPNsense\Core\Legacy;
+ 
+ /**
+  * Class TrafficController
+@@ -44,8 +45,8 @@ class TrafficController extends ApiControllerBase
+      */
+     public function InterfaceAction()
+     {
+-        $response = (new Backend())->configdRun('interface show traffic');
+-        return json_decode($response, true);
++        /* polled by the dashboard: run here rather than start a script */
++        return json_decode(Legacy::run('/usr/local/opnsense/scripts/interfaces/traffic_stats.php'), true);
+     }
+ 
+     public function streamAction($poll_interval = 1)
+diff --git a/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/OverviewController.php b/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/OverviewController.php
+index 3c8d1ecbcc..19a5fd4c45 100644
+--- a/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/OverviewController.php
++++ b/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/OverviewController.php
+@@ -31,6 +31,7 @@ namespace OPNsense\Interfaces\Api;
+ use OPNsense\Base\ApiControllerBase;
+ use OPNsense\Core\Backend;
+ use OPNsense\Core\Config;
++use OPNsense\Core\Legacy;
+ use OPNsense\Firewall\Util;
+ use OPNsense\Routing\Gateways;
+ use OPNsense\Interface\Autoconf;
+@@ -105,6 +106,68 @@ class OverviewController extends ApiControllerBase
+         ];
+     }
+ 
++    /**
++     * The routing table as scripts/routes/show_routes.py -n json gives it.
++     */
++    private static function routes()
++    {
++        $result = [];
++        $fieldnames = [];
++        $proto = '';
++        exec('/usr/bin/netstat -rWn', $lines);
++        foreach ($lines as $line) {
++            $fields = preg_split('/\s+/', trim($line), -1, PREG_SPLIT_NO_EMPTY);
++            if (count($fields) == 1 && $fields[0] == 'Internet:') {
++                $proto = 'ipv4';
++            } elseif (count($fields) == 1 && $fields[0] == 'Internet6:') {
++                $proto = 'ipv6';
++            } elseif (count($fields) > 2 && $fields[0] == 'Destination' && $fields[1] == 'Gateway') {
++                $fieldnames = array_map('strtolower', $fields);
++            } elseif (count($fields) > 2) {
++                $record = ['proto' => $proto];
++                foreach ($fields as $i => $field) {
++                    if (isset($fieldnames[$i])) {
++                        $record[$fieldnames[$i]] = $field;
++                    }
++                }
++                foreach ($fieldnames as $fieldname) {
++                    $record[$fieldname] = $record[$fieldname] ?? '';
++                }
++                $result[] = $record;
++            }
++        }
++        return $result;
++    }
++
++    /**
++     * Primary addresses of every interface, as pluginctl -46 gives them.
++     */
++    private static function primaryAddresses($ifconfig_details)
++    {
++        global $config;
++
++        $result = [];
++        foreach (array_keys($config['interfaces'] ?? []) as $int) {
++            if (empty($config['interfaces'][$int])) {
++                continue;
++            }
++            $result[$int] = [];
++            foreach (['inet' => '4', 'inet6' => '6'] as $family => $opt) {
++                $raw = $opt === '4' ? interfaces_primary_address($int, $ifconfig_details) :
++                    interfaces_primary_address6($int, $ifconfig_details);
++                $result[$int][] = [
++                    'address' => $raw[0],
++                    'network' => $raw[1],
++                    'bits' => $raw[2],
++                    'device' => $raw[3],
++                    'interface' => $int,
++                    'family' => $family,
++                ];
++            }
++        }
++        return $result;
++    }
++
+     private function parseIfInfo($interface = null, $detailed = false)
+     {
+         $backend = new Backend();
+@@ -113,9 +176,12 @@ class OverviewController extends ApiControllerBase
+         $result = [];
+ 
+         /* abbreviated information */
+-        $ifinfo = json_decode($backend->configdpRun('interface list ifconfig', [$interface]), true);
+-        $routes = json_decode($backend->configdRun('interface routes list -n json'), true);
+-        $ifaddr = json_decode($backend->configdRun('interface address'), true);
++        /* polled by the dashboard: gathered here rather than by three scripts */
++        Legacy::load(['config.inc', 'util.inc', 'interfaces.inc']);
++        $details = legacy_interfaces_details();
++        $ifinfo = $interface === null ? $details : legacy_interfaces_details($interface);
++        $routes = self::routes();
++        $ifaddr = self::primaryAddresses($details);
+ 
+         /* detailed information */
+         if ($detailed) {
+diff --git a/src/opnsense/mvc/app/controllers/OPNsense/Routing/Api/SettingsController.php b/src/opnsense/mvc/app/controllers/OPNsense/Routing/Api/SettingsController.php
+index 1caa4003eb..523d262ea7 100644
+--- a/src/opnsense/mvc/app/controllers/OPNsense/Routing/Api/SettingsController.php
++++ b/src/opnsense/mvc/app/controllers/OPNsense/Routing/Api/SettingsController.php
+@@ -32,6 +32,7 @@ use OPNsense\Base\ApiMutableModelControllerBase;
+ use OPNsense\Base\UserException;
+ use OPNsense\Core\Backend;
+ use OPNsense\Core\Config;
++use OPNsense\Core\Legacy;
+ use OPNsense\Core\Type;
+ use OPNsense\Firewall\Util;
+ 
+@@ -54,8 +55,10 @@ class SettingsController extends ApiMutableModelControllerBase
+     public function searchGatewayAction()
+     {
+         $cfg = Config::getInstance()->object();
+-        $ifconfig = json_decode((new Backend())->configdRun('interface list ifconfig'), true) ?? [];
+-        $gateways_status = json_decode((new Backend())->configdRun('interface gateways status'), true) ?? [];
++        /* polled by the dashboard: run here rather than start two scripts */
++        Legacy::load(['config.inc', 'interfaces.inc']);
++        $ifconfig = legacy_interfaces_details() ?? [];
++        $gateways_status = json_decode(Legacy::run('/usr/local/opnsense/scripts/routes/gateway_status.php'), true) ?? [];
+         $gateways = array_values($this->getModel()->gatewaysIndexedByName(true, false, true));
+         $down_gateways = !empty((string)$cfg->system->gw_switch_default) ? array_map(function ($gw) {
+             if (str_contains($gw['status'], 'down')) {
+diff --git a/src/opnsense/mvc/app/library/OPNsense/Core/Legacy.php b/src/opnsense/mvc/app/library/OPNsense/Core/Legacy.php
+new file mode 100644
+index 0000000000..623eaf407c
+--- /dev/null
++++ b/src/opnsense/mvc/app/library/OPNsense/Core/Legacy.php
+@@ -0,0 +1,72 @@
++<?php
++
++/*
++ * Copyright (C) 2026 SinceVIC20
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright notice,
++ *    this list of conditions and the following disclaimer.
++ *
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
++ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
++ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
++ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ */
++
++namespace OPNsense\Core;
++
++/**
++ * Run legacy code in the web server's PHP worker, which already has PHP and
++ * its extensions loaded, instead of having configd start a PHP process for
++ * a few milliseconds of work.  Only for read-only work a page polls.
++ */
++class Legacy
++{
++    /**
++     * Load legacy include files.  They set these globals at file level, which
++     * would otherwise land in this method's scope.
++     * @param array $files include files, as legacy scripts name them
++     */
++    public static function load(array $files)
++    {
++        global $config, $timezone, $groupindex, $userindex;
++
++        foreach ($files as $file) {
++            require_once $file;
++        }
++    }
++
++    /**
++     * Run a legacy script and return what it prints, as configd would.
++     * @param string $script full path of the script
++     * @param array $includes include files to load first
++     * @return string
++     */
++    public static function run($script, array $includes = ['config.inc'])
++    {
++        self::load($includes);
++        ob_start();
++        try {
++            (static function () use ($script) {
++                global $config, $timezone, $groupindex, $userindex;
++                include $script;
++            })();
++        } finally {
++            $output = ob_get_clean();
++        }
++        return $output;
++    }
++}
+diff --git a/src/opnsense/mvc/app/models/OPNsense/IPsec/FieldTypes/VTIField.php b/src/opnsense/mvc/app/models/OPNsense/IPsec/FieldTypes/VTIField.php
+index cf42441b41..f422e9f977 100644
+--- a/src/opnsense/mvc/app/models/OPNsense/IPsec/FieldTypes/VTIField.php
++++ b/src/opnsense/mvc/app/models/OPNsense/IPsec/FieldTypes/VTIField.php
+@@ -30,7 +30,7 @@ namespace OPNsense\IPsec\FieldTypes;
+ 
+ use OPNsense\Base\FieldTypes\ArrayField;
+ use OPNsense\Base\FieldTypes\TextField;
+-use OPNsense\Core\Backend;
++use OPNsense\Core\Legacy;
+ 
+ class VTIField extends ArrayField
+ {
+@@ -42,7 +42,8 @@ class VTIField extends ArrayField
+     protected static function getStaticChildren()
+     {
+         $result = [];
+-        $legacy_vtis = json_decode((new Backend())->configdRun('ipsec list legacy_vti'), true);
++        /* read whenever the IPsec model loads, the dashboard included: run here, not as a script */
++        $legacy_vtis = json_decode(Legacy::run('/usr/local/opnsense/scripts/ipsec/get_legacy_vti.php'), true);
+         if (!empty($legacy_vtis)) {
+             foreach ($legacy_vtis as $vti) {
+                 $vti['enabled'] = '1';
+-- 
+2.50.1 (Apple Git-155)
+
