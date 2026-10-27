@@ -1658,6 +1658,8 @@ conn_write_counts(void)
 	unsigned int retry = 0, kept = 0, other = 0;
 	struct cmm_conn *conn;
 	struct list_head *pos;
+	unsigned long hw;
+	size_t len;
 	time_t now;
 	FILE *f;
 	int i;
@@ -1684,14 +1686,20 @@ conn_write_counts(void)
 		}
 	}
 
+	/* CDX's own count, so the widget needs no process to read it. */
+	len = sizeof(hw);
+	if (sysctlbyname("dev.cdx.stats.active_connections", &hw, &len,
+	    NULL, 0) != 0 || len != sizeof(hw))
+		hw = 0;
+
 	f = fopen(CMM_CONN_FILE ".tmp", "w");
 	if (f == NULL)
 		return;
 	fprintf(f, "tracked %u offloaded %u new %u closing %u idle %u "
 	    "retry %u kept %u other %u neigh_events %u neigh_updates %u "
-	    "neigh_polls %u\n", conn_count, offloaded, new, closing, idle,
-	    retry, kept, other, cmm_neigh_nevents, cmm_neigh_nupdates,
-	    cmm_neigh_npolls);
+	    "neigh_polls %u hw_active %lu\n", conn_count, offloaded, new,
+	    closing, idle, retry, kept, other, cmm_neigh_nevents,
+	    cmm_neigh_nupdates, cmm_neigh_npolls, hw);
 	if (fclose(f) != 0 || rename(CMM_CONN_FILE ".tmp", CMM_CONN_FILE) != 0)
 		unlink(CMM_CONN_FILE ".tmp");
 }

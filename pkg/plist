@@ -54,3 +54,4 @@
 /usr/local/opnsense/www/js/widgets/MonoCpu.js
 /usr/local/opnsense/www/js/widgets/Metadata/Mono.xml
 /usr/local/etc/inc/plugins.inc.d/mono.inc
+/usr/local/share/mono-gateway/release

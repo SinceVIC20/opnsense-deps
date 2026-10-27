@@ -272,6 +272,9 @@ package: all
 	install -m 644 ${OPSDIR}/plugins/mono/src/etc/inc/plugins.inc.d/mono.inc ${PKG_STAGEDIR}/usr/local/etc/inc/plugins.inc.d/
 	# CMM configd action (restart on interface reassignment)
 	install -m 644 ${PKG_CONFDIR}/actions_cmm.conf ${PKG_STAGEDIR}/usr/local/opnsense/service/conf/actions.d/
+	# Release and commit for the dashboard widget, readable without running pkg
+	mkdir -p ${PKG_STAGEDIR}/usr/local/share/mono-gateway
+	echo "${PKG_VERSION} ${PKG_COMMIT}" > ${PKG_STAGEDIR}/usr/local/share/mono-gateway/release
 	# Generate manifest with version, the commit it was built from and the safety package it pulls in
 	sed -e 's/%%VERSION%%/${PKG_VERSION}/' -e 's/%%COMMIT%%/${PKG_COMMIT}/' \
 	    -e 's/%%SAFETY_DEP_VERSION%%/${PKG_VERSION:S/_/./g}/' ${PKG_METADIR}/+MANIFEST \
