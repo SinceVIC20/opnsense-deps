@@ -27,7 +27,7 @@
 export default class Mono extends BaseTableWidget {
     constructor() {
         super();
-        this.tickTimeout = 15;
+        this.tickTimeout = 60; // release and offload state rarely change
     }
 
     getMarkup() {
