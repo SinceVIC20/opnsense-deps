@@ -14,6 +14,10 @@ DIR=/usr/local/share/mono-gateway/core-patches
 STATE=/var/db/mono-core-patches
 ROOT=/usr/local
 
+# pkg runs install scripts with POSIXLY_CORRECT set, and then patch(1) takes
+# a new file's name from "--- /dev/null" and can't create it.
+unset POSIXLY_CORRECT
+
 say()
 {
 	echo "${1}"
