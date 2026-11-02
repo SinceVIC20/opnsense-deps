@@ -63,6 +63,26 @@ static struct cdx_iface_ifinfo *ifstats_slots;
 static uint8_t pppoe_slot_used[MAX_PPPoE_INTERFACES];
 static uint8_t ifstats_slot_used[NUM_IFSTATS_SLOTS];
 
+/*
+ * When each slot was last freed (0 = never). Old flows can still write a
+ * freed record for a while, so a new interface gets the slot freed longest ago.
+ */
+static uint64_t pppoe_slot_freed[MAX_PPPoE_INTERFACES];
+static uint64_t ifstats_slot_freed[NUM_IFSTATS_SLOTS];
+static uint64_t slot_free_seq;
+
+/* The free slot freed longest ago, or -1. Called with dpa_statslist_lock. */
+static int
+pick_free_slot(const uint8_t *used, const uint64_t *freed, int count)
+{
+	int i, best = -1;
+
+	for (i = 0; i < count; i++)
+		if (!used[i] && (best < 0 || freed[i] < freed[best]))
+			best = i;
+	return (best);
+}
+
 /* MURAM handle for cleanup */
 static void *stats_muram_handle;
 
@@ -399,6 +419,9 @@ cdxdrv_init_stats(void *muram_handle)
 	    MAX_PPPoE_INTERFACES);
 	memset(pppoe_slot_used, 0, sizeof(pppoe_slot_used));
 	memset(ifstats_slot_used, 0, sizeof(ifstats_slot_used));
+	memset(pppoe_slot_freed, 0, sizeof(pppoe_slot_freed));
+	memset(ifstats_slot_freed, 0, sizeof(ifstats_slot_freed));
+	slot_free_seq = 0;
 	spin_unlock(&dpa_statslist_lock);
 
 	callout_init_mtx(&ifcounter_sampler, &dpa_statslist_lock.mtx, 0);
@@ -414,7 +437,7 @@ cdxdrv_init_stats(void *muram_handle)
 /*
  * alloc_iface_stats — Allocate a MURAM stats slot for an interface.
  *
- * Pops from the appropriate free-list and computes the rxstats_index
+ * Takes the free slot freed longest ago and computes the rxstats_index
  * and txstats_index relative to stats_mem.  Also allocates a heap-side
  * last_stats snapshot for delta calculation.
  */
@@ -431,16 +454,15 @@ alloc_iface_stats(uint32_t dev_type, struct dpa_iface_info *iface)
 
 	if (dev_type == IF_TYPE_PPPOE) {
 		struct cdx_pppoe_iface_ifinfo *pppoe_stats;
-		uint32_t i;
+		int i;
 
 		pppoe_stats = NULL;
 		spin_lock(&dpa_statslist_lock);
-		for (i = 0; i < MAX_PPPoE_INTERFACES; i++) {
-			if (!pppoe_slot_used[i]) {
-				pppoe_slot_used[i] = 1;
-				pppoe_stats = &pppoe_slots[i];
-				break;
-			}
+		i = pick_free_slot(pppoe_slot_used, pppoe_slot_freed,
+		    MAX_PPPoE_INTERFACES);
+		if (i >= 0) {
+			pppoe_slot_used[i] = 1;
+			pppoe_stats = &pppoe_slots[i];
 		}
 		if (pppoe_stats != NULL) {
 			memset(pppoe_stats, 0,
@@ -460,16 +482,15 @@ alloc_iface_stats(uint32_t dev_type, struct dpa_iface_info *iface)
 		spin_unlock(&dpa_statslist_lock);
 	} else {
 		struct cdx_iface_ifinfo *ifstats;
-		uint32_t i;
+		int i;
 
 		ifstats = NULL;
 		spin_lock(&dpa_statslist_lock);
-		for (i = 0; i < NUM_IFSTATS_SLOTS; i++) {
-			if (!ifstats_slot_used[i]) {
-				ifstats_slot_used[i] = 1;
-				ifstats = &ifstats_slots[i];
-				break;
-			}
+		i = pick_free_slot(ifstats_slot_used, ifstats_slot_freed,
+		    NUM_IFSTATS_SLOTS);
+		if (i >= 0) {
+			ifstats_slot_used[i] = 1;
+			ifstats = &ifstats_slots[i];
 		}
 		if (ifstats != NULL) {
 			memset(ifstats, 0, sizeof(struct cdx_iface_ifinfo));
@@ -508,7 +529,7 @@ alloc_iface_stats(uint32_t dev_type, struct dpa_iface_info *iface)
 void
 free_iface_stats(uint32_t dev_type __unused, struct dpa_iface_info *iface)
 {
-	uintptr_t p, pppoe_base, if_base;
+	uintptr_t p, pppoe_base, if_base, slot;
 	if_t ifp = NULL;
 	int index;
 
@@ -524,12 +545,18 @@ free_iface_stats(uint32_t dev_type __unused, struct dpa_iface_info *iface)
 	if (index >= 0)
 		ifp = ifcounter_detach_locked(index);
 	if (p >= pppoe_base && p < if_base) {
-		pppoe_slot_used[(p - pppoe_base) /
-		    sizeof(struct cdx_pppoe_iface_ifinfo)] = 0;
+		slot = (p - pppoe_base) / sizeof(struct cdx_pppoe_iface_ifinfo);
+		if (pppoe_slot_used[slot]) {
+			pppoe_slot_used[slot] = 0;
+			pppoe_slot_freed[slot] = ++slot_free_seq;
+		}
 	} else if (p >= if_base && p < if_base +
 	    NUM_IFSTATS_SLOTS * sizeof(struct cdx_iface_ifinfo)) {
-		ifstats_slot_used[(p - if_base) /
-		    sizeof(struct cdx_iface_ifinfo)] = 0;
+		slot = (p - if_base) / sizeof(struct cdx_iface_ifinfo);
+		if (ifstats_slot_used[slot]) {
+			ifstats_slot_used[slot] = 0;
+			ifstats_slot_freed[slot] = ++slot_free_seq;
+		}
 	} else {
 		DPA_ERROR("cdx: free_iface_stats: slot %p is not a stats "
 		    "slot\n", iface->stats);
