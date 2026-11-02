@@ -24,6 +24,7 @@
 #include <sys/malloc.h>
 #include <sys/bus.h>
 #include <sys/socket.h>
+#include <sys/eventhandler.h>
 
 #include <net/if.h>
 #include <net/if_var.h>
@@ -1444,6 +1445,42 @@ devman_init_linux_stats(void)
 
 	spin_lock_init(&dpa_devlist_lock);
 	return (0);
+}
+
+/*
+ * cmm sends a LAGG's MAC once, when it registers it. Keep that copy in
+ * step when the address changes, so new flows go out from the current one.
+ */
+static eventhandler_tag devman_lladdr_tag;
+
+static void
+devman_lladdr_changed(void *arg __unused, if_t ifp)
+{
+	struct dpa_iface_info *iface;
+
+	spin_lock(&dpa_devlist_lock);
+	iface = devman_find_by_name(if_name(ifp));
+	if (iface != NULL && (iface->if_flags & IF_TYPE_LAGG))
+		memcpy(iface->lagg_info.mac_addr, if_getlladdr(ifp), ETH_ALEN);
+	spin_unlock(&dpa_devlist_lock);
+}
+
+void
+devman_start_lladdr_watch(void)
+{
+
+	devman_lladdr_tag = EVENTHANDLER_REGISTER(iflladdr_event,
+	    devman_lladdr_changed, NULL, EVENTHANDLER_PRI_ANY);
+}
+
+void
+devman_stop_lladdr_watch(void)
+{
+
+	if (devman_lladdr_tag != NULL) {
+		EVENTHANDLER_DEREGISTER(iflladdr_event, devman_lladdr_tag);
+		devman_lladdr_tag = NULL;
+	}
 }
 
 /* ================================================================
