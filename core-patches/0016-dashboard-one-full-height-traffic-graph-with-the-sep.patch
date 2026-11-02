@@ -1,7 +1,7 @@
 From 6b03ad769a8c9cde694a03fdb15b867c0942a57c Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 15:35:17 -0700
-Subject: [PATCH 16/17] dashboard: one full-height traffic graph, with the
+Subject: [PATCH 16/18] dashboard: one full-height traffic graph, with the
  separate graphs a click away
 
 The Traffic Graph widget shows one interface at a time on a single
