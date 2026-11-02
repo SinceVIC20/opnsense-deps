@@ -1,4 +1,6 @@
 date: 2026-11-02
-This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes the Traffic Graph's linear scale fit the traffic more closely.
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes the Traffic Graph's linear scale fit the traffic more closely, adds an automatic choice for 1G SFP autonegotiation, and retries a failed eMMC read or write instead of giving up at once.
 
 - dashboard: the Traffic Graph's linear scale fits the traffic on screen more closely, with finer steps, and glides to its new size within a couple of seconds instead of staying tall for minutes after a burst.
+- SFP: a 1G SFP port's autonegotiation on the SFP+ page has a third choice, Auto: it negotiates first and switches to a fixed 1G link when the other end doesn't negotiate, as some providers need. On stays the default. Auto has not been tried on a real 1G link yet, so reports are welcome.
+- system: a read or write on the built-in eMMC storage that fails is now tried again up to three times before it counts as failed. Before, one slow write could restart the router.
