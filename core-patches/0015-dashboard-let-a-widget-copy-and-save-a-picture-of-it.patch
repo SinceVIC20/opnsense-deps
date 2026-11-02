@@ -1,7 +1,7 @@
 From 90128a653fd15afb7a612f8e5190ebf016659cf7 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 15:35:17 -0700
-Subject: [PATCH 15/16] dashboard: let a widget copy and save a picture of
+Subject: [PATCH 15/17] dashboard: let a widget copy and save a picture of
  itself
 
 Add BaseWidget._saveImage(), which draws the widget as shown into a PNG,
