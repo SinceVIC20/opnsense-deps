@@ -98,6 +98,9 @@ void *FmMurambaseAddr;
  * Initialization
  * ---------------------------------------------------------------- */
 
+extern void devman_start_lladdr_watch(void);
+extern void devman_stop_lladdr_watch(void);
+
 int
 cdx_dpa_bridge_init(void)
 {
@@ -217,6 +220,9 @@ cdx_dpa_bridge_init(void)
 	/* Discover OH ports */
 	cdx_dpa_bridge_discover_oh_ports();
 
+	/* Last, so a failed init never leaves it registered. */
+	devman_start_lladdr_watch();
+
 	printf("cdx: bridge: initialization complete\n");
 	return (0);
 }
@@ -230,6 +236,8 @@ cdx_dpa_bridge_destroy(void)
 {
 	struct cdx_fman_info *fi = &cdx_fman_info_data;
 	uint32_t i;
+
+	devman_stop_lladdr_watch();
 
 	/*
 	 * Step 1: Delete PCD on all ports FIRST.
