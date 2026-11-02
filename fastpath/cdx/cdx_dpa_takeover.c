@@ -215,8 +215,8 @@ cdx_dist_fq_rx_callback(t_Handle app, t_Handle qm_fqr,
 		m->m_len = DPAA_FD_GET_LENGTH(frame);
 		m->m_pkthdr.len = m->m_len;
 
+		/* ether_input() counts the bytes. */
 		if_inc_counter(ifp, IFCOUNTER_IPACKETS, 1);
-		if_inc_counter(ifp, IFCOUNTER_IBYTES, m->m_pkthdr.len);
 
 		qman_rx_defer(m);
 		dtsec_rm_pool_rx_refill_bpid(frame->bpid);
