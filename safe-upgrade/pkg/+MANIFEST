@@ -22,5 +22,10 @@ if mount | grep -q ' on /boot/msdos '; then
 fi
 /usr/local/sbin/mono-upgrade setup || true
 /usr/local/sbin/mono-upgrade decide || true
+/usr/local/sbin/mono-upgrade counter on > /dev/null 2>&1 || true
+EOD
+  pre-deinstall: <<EOD
+# Removed, not upgraded: nothing will mark starts as finished, so U-Boot stops counting.
+[ -n "${PKG_UPGRADE}" ] || /usr/local/sbin/mono-upgrade counter off > /dev/null 2>&1 || true
 EOD
 }

@@ -1,7 +1,7 @@
 #!/usr/local/bin/python3
 """Reads and writes the safe-upgrade record and U-Boot's settings on the eMMC.
 
-  mono-safe-disk record get          print idle|probe|probe-seen|pending|tried|fallback|empty|foreign
+  mono-safe-disk record get          print idle|probe|probe-seen|pending|tried|fallback|rescued|booting-1..3|counter-off|empty|foreign
   mono-safe-disk record set <state>  write a state (refuses a block holding someone else's data)
   mono-safe-disk env show            print U-Boot's settings stored on the eMMC
   mono-safe-disk env install         add the safe-upgrade check to U-Boot's boot command
@@ -20,7 +20,11 @@ DEV = os.environ.get("MONO_SAFE_DEV", "/dev/mmcsd0")
 REC_OFFSET = 0x7FF000
 REC_SIZE = 512
 REC_MAGIC = b"MONOTRY1"
-STATES = ["idle", "probe", "probe-seen", "pending", "tried", "fallback"]
+# "rescued" (6) is written by U-Boot's mono_rescue before it starts kernel.old;
+# "booting-N" (7-9) is U-Boot's count of starts not yet seen to finish (mono_auto),
+# which rescues on the next start after booting-3; "counter-off" (10) stops it counting.
+STATES = ["idle", "probe", "probe-seen", "pending", "tried", "fallback", "rescued",
+          "booting-1", "booting-2", "booting-3", "counter-off"]
 
 # U-Boot settings when the board starts from eMMC (same values as Mono's firmware tool).
 ENV_OFFSET = 0x300000

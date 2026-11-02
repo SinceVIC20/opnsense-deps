@@ -22,7 +22,20 @@ class MonoUpgradeStatus extends AbstractStatus
     {
         $flag = '/var/db/mono-upgrade/notice';
         $space = '/var/db/mono-upgrade/space-notice';
+        $rescue = '/var/db/mono-upgrade/rescue-notice';
         $messages = [];
+
+        if (file_exists($rescue)) {
+            // time, how, kernel now running, folder with the replaced files
+            $lines = file($rescue, FILE_IGNORE_NEW_LINES);
+            $messages[] = sprintf(
+                gettext('The router was rescued on %s %s: it got stuck restarting and now runs the kernel and offload ' .
+                'files it had before (%s), which stay the default until the next update. The replaced files are in %s. ' .
+                'Anonymous details were sent to improve the updates.'),
+                $lines[0] ?? '', $lines[1] ?? '', $lines[2] ?? '', $lines[3] ?? ''
+            );
+            $this->internalTimestamp = filemtime($rescue);
+        }
 
         if (file_exists($space)) {
             $lines = file($space, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -68,5 +81,6 @@ class MonoUpgradeStatus extends AbstractStatus
     public function dismissStatus()
     {
         @unlink('/var/db/mono-upgrade/notice');
+        @unlink('/var/db/mono-upgrade/rescue-notice');
     }
 }

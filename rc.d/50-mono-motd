@@ -9,3 +9,9 @@ RELEASE=${1:-$(pkg query %v mono-gateway 2>/dev/null)}
 
 sed -i '' '/^ Mono Gateway release /d' ${MOTD}
 echo " Mono Gateway release ${RELEASE}" >> ${MOTD}
+
+# A rescue from U-Boot is shown until it is dismissed on the dashboard.
+sed -i '' '/^ Rescued /d' ${MOTD}
+if [ -f /var/db/mono-upgrade/rescue-notice ]; then
+	echo " Rescued $(sed -n 1p /var/db/mono-upgrade/rescue-notice) $(sed -n 2p /var/db/mono-upgrade/rescue-notice): running the previous kernel and offload files, see the dashboard" >> ${MOTD}
+fi

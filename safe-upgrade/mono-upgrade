@@ -11,6 +11,8 @@
 #   mono-upgrade remove     undoes decide's changes, run by use-official-updates.sh
 #   mono-upgrade send       sends waiting upgrade reports to our server
 #   mono-upgrade status     shows the current state
+#   mono-upgrade rescue-offload  early boot after U-Boot's mono_rescue: puts back the offload files of kernel.old
+#   mono-upgrade counter on|off  lets U-Boot's start counter rescue a router stuck restarting, or not
 
 STATE=/var/db/mono-upgrade
 HISTORY=${STATE}/history.log
@@ -38,6 +40,29 @@ history()
 {
 	# date | from -> to | disk and boot | result | stage | reason
 	echo "$(date '+%Y-%m-%d %H:%M') | ${1} -> ${2} | $(rootfs) $(armed_word) | ${3} | ${4} | ${5}" >> ${HISTORY}
+	if [ $(wc -l < ${HISTORY}) -gt 500 ]; then
+		tail -n 500 ${HISTORY} > ${HISTORY}.new && mv ${HISTORY}.new ${HISTORY}
+	fi
+}
+
+room_for()
+{
+	# Copies to the main disk leave it at least 64 MB free; ${1} is the copy's size in KB.
+	[ $(( $(df -k ${STATE} | awk 'NR == 2 { print $4 }') - ${1} )) -ge 65536 ]
+}
+
+keep_newest()
+{
+	# Only the newest two of these copies (rescues, boot partition moves) stay.
+	ls -d ${1} 2>/dev/null | sort -r | tail -n +3 | xargs rm -rf
+}
+
+counter_reset()
+{
+	# This start finished: U-Boot's count of unfinished starts begins again.
+	case "$(${DISK} record get 2>/dev/null)" in
+	booting-*)	${DISK} record set idle ;;
+	esac
 }
 
 failed_here()
@@ -98,6 +123,7 @@ free_boot_space()
 	# more is free, so a kernel update needn't wait for the owner to do it.
 	# The main disk keeps at least 64 MB free.
 	WANT=${1}
+	keep_newest "${STATE}/boot-moved/*"
 	D=${STATE}/boot-moved/$(date +%Y%m%d-%H%M%S)
 	movable_boot_files | while read -r SIZE F; do
 		[ "${WANT}" -gt 0 ] || break
@@ -359,11 +385,141 @@ decide()
 	esac
 }
 
+# The offload modules, programs and settings, which must match the kernel they run with.
+offload_files()
+{
+	(cd / && ls boot/modules/*.ko 2>/dev/null)
+	for F in usr/local/sbin/cmm usr/local/sbin/cmmctl usr/local/sbin/dpa_app usr/local/sbin/fmc \
+	    etc/cdx_cfg.xml etc/cdx_pcd.xml etc/cdx_sp.xml etc/fmc/config/hxs_pdl_v3.xml; do
+		[ -f /${F} ] && echo ${F}
+	done
+}
+
+OFFLOAD_GOOD=${STATE}/offload.good
+OFFLOAD_OLD=${STATE}/offload.old
+
+save_good_offload()
+{
+	# The offload files this kernel has started with, kept to go with it once it is kernel.old.
+	V=$(sysctl -n kern.version | head -n 1)
+	SUMS=$(cd / && sha256 -r $(offload_files))
+	[ -f ${OFFLOAD_GOOD}/VERSION ] && [ "$(cat ${OFFLOAD_GOOD}/VERSION)" = "${V}" ] &&
+	    [ "$(cat ${OFFLOAD_GOOD}/SUMS 2>/dev/null)" = "${SUMS}" ] && return
+	room_for $(cd / && du -ck $(offload_files) | tail -n 1 | awk '{ print $1 }') || return
+	rm -rf ${OFFLOAD_GOOD}.new
+	mkdir -p ${OFFLOAD_GOOD}.new
+	if (cd / && tar -cf - $(offload_files)) | tar -xpf - -C ${OFFLOAD_GOOD}.new; then
+		echo "${V}" > ${OFFLOAD_GOOD}.new/VERSION
+		echo "${SUMS}" > ${OFFLOAD_GOOD}.new/SUMS
+		rm -rf ${OFFLOAD_GOOD} && mv ${OFFLOAD_GOOD}.new ${OFFLOAD_GOOD}
+	else
+		rm -rf ${OFFLOAD_GOOD}.new
+	fi
+}
+
+keep_offload_with_old_kernel()
+{
+	# kernel.img is about to become kernel.old: its offload files go with it.
+	rm -rf ${OFFLOAD_OLD}
+	if [ -f ${OFFLOAD_GOOD}/VERSION ] && grep -a -q -F "$(cat ${OFFLOAD_GOOD}/VERSION)" ${M}/kernel.img; then
+		cp -Rp ${OFFLOAD_GOOD} ${OFFLOAD_OLD}
+	fi
+}
+
+cmd_rescue_offload()
+{
+	# Runs before any module loads: kernel.old is running, so put back the files that ran with it.
+	V=$(sysctl -n kern.version | head -n 1)
+	if [ ! -f ${OFFLOAD_OLD}/VERSION ] || [ "$(cat ${OFFLOAD_OLD}/VERSION)" != "${V}" ]; then
+		say "rescue: no saved offload files for this kernel, leaving them as they are"
+		return
+	fi
+	keep_newest "${STATE}/rescued-*"
+	F=${STATE}/rescued-$(date +%Y%m%d-%H%M%S)
+	mkdir -p ${F}/offload
+	# The replaced files are kept when there is room; the rescue goes ahead either way.
+	if room_for $(cd / && du -ck $(offload_files) | tail -n 1 | awk '{ print $1 }'); then
+		(cd / && tar -cf - $(offload_files)) | tar -xpf - -C ${F}/offload
+	else
+		say "rescue: no room to keep the replaced offload files"
+	fi
+	(cd ${OFFLOAD_OLD} && tar -cf - --exclude VERSION --exclude SUMS .) | tar -xpf - -C /
+	kldxref /boot/modules 2>/dev/null
+	echo ${F} > ${STATE}/rescued-dir
+	say "rescue: put back the offload files of kernel.old, the replaced ones are in ${F}/offload"
+}
+
+rescue_restore()
+{
+	# U-Boot's mono_rescue started kernel.old: make it the default again so the
+	# next restart doesn't start the bad kernel, and keep that one on the main disk.
+	F=$(cat ${STATE}/rescued-dir 2>/dev/null)
+	if [ -z "${F}" ] || [ ! -d "${F}" ]; then
+		keep_newest "${STATE}/rescued-*"
+		F=${STATE}/rescued-$(date +%Y%m%d-%H%M%S)
+	fi
+	rm -f ${STATE}/rescued-dir
+	mkdir -p ${F}
+	if [ -f ${M}/kernel.img ] && room_for $(( $(stat -f %z ${M}/kernel.img) / 1024 )); then
+		cp -p ${M}/kernel.img ${F}/kernel.img
+	fi
+	if ! copy_verified ${M}/kernel.old ${M}/kernel.img; then
+		say "rescue: could not put kernel.old back as kernel.img"
+		return
+	fi
+	# Its modules too, when /boot/kernel.old is the kernel now running.
+	if [ -f ${BOOT}/kernel.old/kernel ] &&
+	    grep -a -q -F "$(sysctl -n kern.version | head -n 1)" ${BOOT}/kernel.old/kernel; then
+		mv ${BOOT}/kernel ${F}/boot-kernel && mv ${BOOT}/kernel.old ${BOOT}/kernel && kldxref ${BOOT}/kernel
+	else
+		say "rescue: /boot/kernel.old is not the running kernel, /boot/kernel left as it is"
+	fi
+	sync
+	if [ "$(kenv -q mono.rescue_by)" = auto ]; then
+		BY="by itself, after it failed to start 4 times in a row"
+	else
+		BY="with mono_rescue at the U-Boot prompt"
+	fi
+	say "rescued ${BY}: kernel.old is the default kernel again, the failed one is in ${F}"
+	history "$(cat ${STATE}/kernel-version/kernel 2>/dev/null)" "$(cat ${VERSIONDIR}/kernel 2>/dev/null)" rescued "rescue" "started kernel.old ${BY}, failed kernel kept in ${F}"
+	# For the dashboard and the login message, until dismissed.
+	{
+		date '+%Y-%m-%d %H:%M'
+		echo "${BY}"
+		sysctl -n kern.version | head -n 1
+		echo "${F}"
+	} > ${STATE}/rescue-notice
+	TMP=$(mktemp)
+	{
+		echo "Mono router rescued"
+		echo "ID:     $(new_id)"
+		echo "How:    ${BY}"
+		echo "Now:    $(sysctl -n kern.version | head -n 1)"
+		echo "Time:   $(date '+%Y-%m-%d %H:%M')"
+		echo "Safety: $(safety_id)"
+	} | sanitize > ${TMP}
+	queue_report ${TMP}
+	rm -f ${TMP}
+}
+
+cmd_counter()
+{
+	case "${1}" in
+	off)	${DISK} record set counter-off && say "start counter off: U-Boot won't rescue by itself" ;;
+	on)	[ "$(${DISK} record get 2>/dev/null)" = counter-off ] && ${DISK} record set idle; say "start counter on" ;;
+	*)	echo "usage: mono-upgrade counter on|off"; return 1 ;;
+	esac
+}
+
 cmd_boot()
 {
 	REC=$(${DISK} record get 2> /dev/null || echo none)
 
 	case "${REC}" in
+	rescued)
+		${DISK} record set idle
+		rescue_restore
+		;;
 	probe-seen)
 		touch ${STATE}/armed
 		${DISK} record set idle
@@ -415,6 +571,7 @@ cmd_boot()
 		fi
 		if [ ! -f ${STATE}/attempt ]; then
 			save_running_kernel
+			save_good_offload
 			ports > ${STATE}/port-count
 		fi
 	fi
@@ -441,6 +598,8 @@ refuse_kernel()
 
 cmd_shutdown()
 {
+	# A clean shutdown or restart: this start finished.
+	counter_reset
 	K=${BOOT}/kernel/kernel.bin
 	[ -f ${K} ] || return 0
 
@@ -465,6 +624,7 @@ cmd_shutdown()
 	fi
 
 	if [ -f ${M}/kernel.img ]; then
+		keep_offload_with_old_kernel
 		copy_verified ${M}/kernel.img ${M}/kernel.old || { refuse_kernel "could not keep the previous kernel"; return 0; }
 	fi
 	copy_verified ${K} ${M}/kernel.img || { refuse_kernel "could not write the new kernel"; return 0; }
@@ -605,7 +765,9 @@ cmd_remove()
 	fi
 	[ -f ${STATE}/space.locks ] && space_release
 	[ "$(/usr/local/sbin/opnsense-version -a)" = "26.1" ] && clear_offer
-	rm -f ${STATE}/notice
+	rm -f ${STATE}/notice ${STATE}/rescue-notice
+	# Nothing would mark starts as finished any more, so U-Boot must stop counting.
+	cmd_counter off > /dev/null 2>&1
 	return 0
 }
 
@@ -648,9 +810,13 @@ boot)		rm -f ${STATE}/restart-needed; cmd_boot ;;
 shutdown)	cmd_shutdown ;;
 precheck)	cmd_precheck ;;
 decide)		decide ;;
-check)		decide; remove_leftovers ;;
+check)		decide; remove_leftovers
+		# Up 3 minutes: this start finished.
+		[ $(( $(date +%s) - $(sysctl -n kern.boottime | sed 's/.*sec = \([0-9]*\).*/\1/') )) -ge 180 ] && counter_reset ;;
 remove)		cmd_remove ;;
 send)		cmd_send ;;
 status)		cmd_status ;;
-*)		sed -n '2,14p' ${0}; exit 1 ;;
+rescue-offload)	cmd_rescue_offload ;;
+counter)	cmd_counter "${2}" ;;
+*)		sed -n '2,16p' ${0}; exit 1 ;;
 esac
