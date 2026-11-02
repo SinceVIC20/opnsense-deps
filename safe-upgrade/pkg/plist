@@ -4,6 +4,8 @@
 /usr/local/etc/rc.syshook.d/start/50-mono-report
 /usr/local/etc/rc.syshook.d/stop/10-mono-kernel
 /usr/local/etc/rc.syshook.d/upgrade/20-mono-safety
+/usr/local/sbin/mono-config-save
+/usr/local/etc/rc.syshook.d/config/50-mono-config-save
 /usr/local/share/mono-upgrade/mono-boot.txt
 /usr/local/share/mono-upgrade/release
 /usr/local/share/mono-upgrade/rootfs

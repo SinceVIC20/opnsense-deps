@@ -314,6 +314,7 @@ safety-package:
 	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/start \
 	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/stop \
 	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/upgrade \
+	    ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/config \
 	    ${SAFETY_STAGEDIR}/usr/local/etc/cron.d \
 	    ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade \
 	    ${SAFETY_STAGEDIR}/usr/local/opnsense/mvc/app/library/OPNsense/System/Status
@@ -322,6 +323,8 @@ safety-package:
 	install -m 755 ${SAFETY_DIR}/hooks/50-mono-report ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/start/
 	install -m 755 ${SAFETY_DIR}/hooks/10-mono-kernel ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/stop/
 	install -m 755 ${SAFETY_DIR}/hooks/20-mono-safety ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/upgrade/
+	install -m 755 ${OPSDIR}/scripts/update-server/config-save.sh ${SAFETY_STAGEDIR}/usr/local/sbin/mono-config-save
+	install -m 755 ${SAFETY_DIR}/hooks/50-mono-config-save ${SAFETY_STAGEDIR}/usr/local/etc/rc.syshook.d/config/
 	install -m 644 ${SAFETY_DIR}/mono-boot.txt ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade/
 	install -m 644 ${SAFETY_DIR}/mono-upgrade.cron ${SAFETY_STAGEDIR}/usr/local/etc/cron.d/mono-upgrade
 	echo "${SAFETY_RELEASE}" > ${SAFETY_STAGEDIR}/usr/local/share/mono-upgrade/release

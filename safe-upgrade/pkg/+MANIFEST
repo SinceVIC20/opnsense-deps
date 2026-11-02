@@ -23,6 +23,7 @@ fi
 /usr/local/sbin/mono-upgrade setup || true
 /usr/local/sbin/mono-upgrade decide || true
 /usr/local/sbin/mono-upgrade counter on > /dev/null 2>&1 || true
+/usr/local/sbin/mono-config-save save > /dev/null 2>&1 || true
 EOD
   pre-deinstall: <<EOD
 # Removed, not upgraded: nothing will mark starts as finished, so U-Boot stops counting.
