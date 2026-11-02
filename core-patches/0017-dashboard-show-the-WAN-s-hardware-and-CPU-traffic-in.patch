@@ -1,7 +1,7 @@
 From 55319b7fe0c92164b4468824b51e00ea84d019cc Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Sun, 1 Nov 2026 20:42:24 -0700
-Subject: [PATCH 17/18] dashboard: show the WAN's hardware and CPU traffic in
+Subject: [PATCH 17/19] dashboard: show the WAN's hardware and CPU traffic in
  the traffic graph
 
 Cnx HW and Cnx CPU split the WAN's traffic in and out into what the

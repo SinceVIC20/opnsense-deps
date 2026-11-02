@@ -1,0 +1,63 @@
+From cbdaa87366fc66569fa28a61a9f2f47858e4bc04 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Mon, 2 Nov 2026 08:24:34 -0700
+Subject: [PATCH 19/19] interfaces: handle a new address again once an
+ assignment change is saved
+
+Applying an assignment change starts DHCP and the like on the new
+device before the config is saved, so an address that arrives meanwhile
+is dropped as belonging to no interface, and a WAN moved to another port
+got no default route until a reboot. Once the config is saved, the new
+address is handled again for each changed interface with a dynamic
+address.
+---
+ .../Interfaces/Api/AssignmentController.php   | 22 +++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/AssignmentController.php b/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/AssignmentController.php
+index 61193fc27a..1f80c88d78 100644
+--- a/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/AssignmentController.php
++++ b/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/AssignmentController.php
+@@ -148,10 +148,14 @@ class AssignmentController extends ApiMutableModelControllerBase
+              **/
+             if (trim($backend->configdRun("interface apply")) == 'OK') {
+                 Config::getInstance()->lock();
++                $renew = [];
+                 foreach ($this->getModel()->get_if_todo() as $key => $props) {
+                     if (!isset(Config::getInstance()->object()->interfaces->$key)) {
+                         continue;
+                     }
++                    if ($props['pending_action'] != 'delete') {
++                        $renew[] = $key;
++                    }
+                     if ($props['pending_action'] == 'delete') {
+                         $this->cleanRules($key); /* remove associated rules */
+                         unset(Config::getInstance()->object()->interfaces->$key);
+@@ -184,6 +188,24 @@ class AssignmentController extends ApiMutableModelControllerBase
+                 }
+                 Config::getInstance()->save();
+                 $this->getModel()->flush_todo();
++                /*
++                 * The apply above starts DHCP and the like on the new device before
++                 * the config is saved, and an address that arrives meanwhile is
++                 * dropped as belonging to no interface, leaving no default route.
++                 * Handle it again now the config names the device.
++                 */
++                foreach ($renew as $key) {
++                    $ifcfg = Config::getInstance()->object()->interfaces->$key;
++                    if (empty((string)$ifcfg->enable) || empty((string)$ifcfg->if)) {
++                        continue;
++                    }
++                    if (in_array((string)$ifcfg->ipaddr, ['dhcp', 'pppoe', 'pptp', 'l2tp'])) {
++                        $backend->configdpRun('interface newip', [(string)$ifcfg->if], true);
++                    }
++                    if (in_array((string)$ifcfg->ipaddrv6, ['dhcp6', 'slaac'])) {
++                        $backend->configdpRun('interface newipv6', [(string)$ifcfg->if], true);
++                    }
++                }
+                 /* exec filter reload after doing accounting */
+                 $backend->configdRun('filter reload skip_alias', true);
+                 return ["status" => "ok"];
+-- 
+2.50.1 (Apple Git-155)
+
