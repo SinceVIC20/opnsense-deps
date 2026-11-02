@@ -55,6 +55,19 @@ sums()
 	(cd ${ROOT} && for F in $(files); do [ -f ${F} ] && md5 -r ${F}; done)
 }
 
+# The series itself, so a new patch for files it already touches is noticed.
+series()
+{
+	cat $(patches) | md5 -q
+}
+
+# The files are as apply left them, and with this same series.
+as_left()
+{
+	[ -f ${STATE}/sums ] && [ "$(sums)" = "$(cat ${STATE}/sums)" ] &&
+	    [ -f ${STATE}/series ] && [ "$(series)" = "$(cat ${STATE}/series)" ]
+}
+
 # Copy the touched files that exist to a scratch tree.
 scratch()
 {
@@ -118,9 +131,7 @@ reverse()
 apply()
 {
 	mkdir -p ${STATE}
-	if [ -f ${STATE}/sums ] && [ "$(sums)" = "$(cat ${STATE}/sums)" ]; then
-		return 0	# as we left them
-	fi
+	as_left && return 0
 
 	scratch
 	stock
@@ -142,6 +153,7 @@ apply()
 		say "applied $(wc -l < ${STATE}/applied | tr -d ' ') changes, ${SKIPPED} skipped"
 	fi
 	sums > ${STATE}/sums
+	series > ${STATE}/series
 }
 
 revert()
@@ -174,8 +186,10 @@ revert)
 status)
 	if [ ! -f ${STATE}/sums ]; then
 		echo "not applied"
-	elif [ "$(sums)" = "$(cat ${STATE}/sums)" ]; then
+	elif as_left; then
 		echo "applied, files as left:"; sed 's/^/  /;s/\.patch$//' ${STATE}/applied
+	elif [ "$(sums)" = "$(cat ${STATE}/sums)" ]; then
+		echo "applied, but the series has changed since: run apply"
 	else
 		echo "applied before, but the files changed since (a core update?): run apply"
 	fi
