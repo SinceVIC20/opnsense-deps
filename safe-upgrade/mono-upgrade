@@ -811,8 +811,10 @@ shutdown)	cmd_shutdown ;;
 precheck)	cmd_precheck ;;
 decide)		decide ;;
 check)		decide; remove_leftovers
-		# Up 3 minutes: this start finished.
-		[ $(( $(date +%s) - $(sysctl -n kern.boottime | sed 's/.*sec = \([0-9]*\).*/\1/') )) -ge 180 ] && counter_reset ;;
+		# Up 3 minutes: this start finished. At boot this runs in the background, so it can wait for that.
+		UP=$(( $(date +%s) - $(sysctl -n kern.boottime | sed 's/^{ sec = \([0-9]*\),.*/\1/') ))
+		[ ${UP} -lt 180 ] && sleep $(( 180 - UP ))
+		counter_reset ;;
 remove)		cmd_remove ;;
 send)		cmd_send ;;
 status)		cmd_status ;;
