@@ -2254,6 +2254,10 @@ static int create_vlan_ins_hm(struct ins_entry_info *info)
 	/* already set to 0(NULL), so we can skip the stats.*/
 	if (!l2_info->egress_vlan_hdrs[0].tci)
 		goto skip_stats;
+	/* Offset 0 is the first PPPoE record: no pointer unless every tag has its own. */
+	for (ii = 0; ii < num_egress_vlan_hdrs; ii++)
+		if (!l2_info->vlan_stats_offsets[ii])
+			goto skip_stats;
 #ifdef VLAN_FILTER
 	if (!l2_info->vlan_filtering)
 #endif

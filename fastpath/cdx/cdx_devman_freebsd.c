@@ -890,6 +890,11 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 				    cur->vlan_info.vlan_id;
 				l2_info->egress_vlan_hdrs[l2_info->num_egress_vlan_hdrs].tpid =
 				    0x8100;
+#ifdef INCLUDE_VLAN_IFSTATS
+				/* The VLAN's own transmit record, so the hardware counts there. */
+				l2_info->vlan_stats_offsets[l2_info->num_egress_vlan_hdrs] =
+				    cur->txstats_index;
+#endif
 				l2_info->num_egress_vlan_hdrs++;
 			}
 			cur = cur->vlan_info.parent;
@@ -2115,6 +2120,11 @@ dpa_get_l2l3_info_by_itf_id(uint32_t itf_id,
 				l2_info->egress_vlan_hdrs[
 				    l2_info->num_egress_vlan_hdrs].tci =
 				    iface_info->vlan_info.vlan_id;
+#ifdef INCLUDE_VLAN_IFSTATS
+				l2_info->vlan_stats_offsets[
+				    l2_info->num_egress_vlan_hdrs] =
+				    iface_info->txstats_index;
+#endif
 				l2_info->num_egress_vlan_hdrs++;
 			}
 			iface_info = iface_info->vlan_info.parent;
