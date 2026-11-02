@@ -1,0 +1,8 @@
+date: 2026-11-01
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes interface counters and traffic graphs show hardware-forwarded traffic correctly, and splits the WAN's traffic in the Traffic Graph into what the hardware and the CPU handled.
+
+- interfaces: VLAN and PPPoE interfaces now count the traffic the hardware forwards for them. Before, they only counted what the CPU handled, so a PPPoE or VLAN WAN showed a few Kb/s during a fast download. Traffic sent out of a VLAN is counted on that VLAN, no longer on the PPPoE interface.
+- interfaces: every port's byte counters fell back by 4 GB each time they passed it, about every 34 seconds at full 1G speed and every 3.4 seconds at 10G, so totals came up short and graphs dipped below zero. They now keep counting.
+- dashboard: the Traffic Graph adds Cnx HW and Cnx CPU at the front of its row: the WAN's traffic in and out, split into what the hardware forwarded and what the CPU handled. The CPU part is the start and end of each connection, connections arriving from outside until they are set up, and the router's own traffic such as DNS, updates and VPNs, so it stays above zero even when every connection is in hardware. Move or hide them like the other entries.
+- offload: when a LAGG's MAC address changes, new hardware-forwarded traffic uses the new address straight away instead of the old one until a reboot.
+- offload: hardware QoS (CEETM, set up by hand with cmmctl qm) is refused for now. Switching it on stopped the port's traffic, and switching it off did not bring it back until a reboot. The firewall's own traffic shaper is not affected.
