@@ -8,6 +8,8 @@
 set -e
 
 M=/boot/msdos
+# The safety package keeps the offload files that ran with the previous kernel here.
+OLDSET=/var/db/mono-upgrade/offload.old
 
 [ "$(sysctl -n kern.ident)" = "MONO-GATEWAY" ] || { echo "This is not a Mono Gateway, nothing changed."; exit 1; }
 [ "$(id -u)" = 0 ] || { echo "Run this as root."; exit 1; }
@@ -23,6 +25,16 @@ show()
 	fi
 	[ -d /boot/kernel.old ] && echo "/boot/kernel.old: present  <- modules will be restored" || echo "/boot/kernel.old: missing"
 	[ -f ${M}/dtb/mono-gateway-dk.old ] && echo "dtb .old:         present  <- will be restored" || echo "dtb .old:         missing (dtb kept as is)"
+	if oldset_matches; then
+		echo "offload files:    saved with the previous kernel  <- will be restored"
+	else
+		echo "offload files:    none saved for the previous kernel (kept as they are)"
+	fi
+}
+
+oldset_matches()
+{
+	[ -f ${OLDSET}/VERSION ] && [ -f ${M}/kernel.old ] && grep -a -q -F "$(cat ${OLDSET}/VERSION)" ${M}/kernel.old
 }
 
 case "$1" in
@@ -57,6 +69,18 @@ rollback)
 	mv /boot/kernel /boot/kernel.failed
 	mv /boot/kernel.old /boot/kernel
 	kldxref /boot/kernel
+	# The offload modules and programs must match the kernel: put back the ones that ran with it,
+	# and keep the current ones with the failed kernel.
+	if oldset_matches; then
+		S=$(dirname ${OLDSET})
+		rm -rf ${S}/offload.failed && mkdir -p ${S}/offload.failed
+		FILES=$(cd ${OLDSET} && find . -type f ! -name VERSION ! -name SUMS | sed 's|^\./||')
+		(cd / && tar -cf - ${FILES} 2>/dev/null) | tar -xpf - -C ${S}/offload.failed
+		(cd ${OLDSET} && tar -cf - --exclude VERSION --exclude SUMS .) | tar -xpf - -C /
+		kldxref /boot/modules 2>/dev/null
+		rm -rf ${S}/offload.good && cp -Rp ${OLDSET} ${S}/offload.good
+		echo "The offload files of the previous kernel are back; the replaced ones are in ${S}/offload.failed."
+	fi
 	sync
 	echo "Done. The failed kernel is kept as ${M}/kernel.failed and /boot/kernel.failed."
 	echo "Reboot now:  reboot"
