@@ -9,3 +9,4 @@ This release comes from the temporary, unofficial Mono Gateway update server at 
 - updates: when the boot partition is too full for a new kernel, unused files on it are moved to the main disk automatically instead of the update stopping. This also lets a 26.1 router that stopped for lack of room upgrade.
 - system: a 10G port that can't get its full receive buffer now starts with a smaller one, and a port that fails to start no longer leaves the router restarting over and over.
 - updates: a router that gets stuck restarting after an update rescues itself: on the start after three that never finished, U-Boot starts the previous kernel with the offload files that ran with it, and the dashboard says so. One-time setup from the serial console (run mono_rescue also works by hand).
+- updates: the configuration is now also saved outside the OPNsense partition every time settings are saved, so it can be put back after flashing a new image.
