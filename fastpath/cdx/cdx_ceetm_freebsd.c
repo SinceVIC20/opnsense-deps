@@ -909,6 +909,17 @@ ceetm_enable_or_disable_qos(struct tQM_context_ctl *qm_ctx, uint32_t oper)
 		return (QOS_ENERR_NOT_CONFIGURED);
 
 	if (oper) {
+		/*
+		 * Refused for now: in CEETM mode QMan stops serving the
+		 * port's own queues, and offloaded flows and unmapped CPU
+		 * frames still use them, so the port would stop sending.
+		 */
+		if (!qm_ctx->qos_enabled) {
+			printf("cdx: hardware QoS is not supported yet, "
+			    "not enabling it on %s\n", qm_ctx->iface_info ?
+			    (const char *)qm_ctx->iface_info->name : "a port");
+			return (QOS_ENERR_IO);
+		}
 		if (!qm_ctx->qos_enabled) {
 			/* initialize lni */
 			if (ceetm_setup_lni(qm_ctx)) {
@@ -1011,6 +1022,17 @@ ceetm_enable_or_disable_qos(struct tQM_context_ctl *qm_ctx, uint32_t oper)
 					memset(sc->sc_ceetm_dscp_fqid, 0,
 					    sizeof(sc->sc_ceetm_dscp_fqid));
 				}
+			}
+			/*
+			 * Take the port back out of CEETM mode, after the
+			 * driver is back on its own queues: while the mode is
+			 * set, QMan never serves those and the port sends nothing.
+			 */
+			if (qm_ctx->lni != NULL && qm_ctx->lni->sp != NULL &&
+			    qman_sp_disable_ceetm_mode(qm_ctx->lni->sp->dcp_idx,
+			    qm_ctx->lni->sp->idx)) {
+				ceetm_err("qman_sp_disable_ceetm_mode failed\n");
+				return (QOS_ENERR_IO);
 			}
 		} else {
 			ceetm_dbg("already disabled\n");
