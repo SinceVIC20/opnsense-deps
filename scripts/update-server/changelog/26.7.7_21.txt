@@ -7,3 +7,4 @@ This release comes from the temporary, unofficial Mono Gateway update server at 
 - interfaces: a port's sent bytes no longer include the flow-control pause frames it sends.
 - interfaces: a WAN moved to another port under Interfaces, Assignments now gets its default route right away, instead of only after a restart.
 - updates: when the boot partition is too full for a new kernel, unused files on it are moved to the main disk automatically instead of the update stopping. This also lets a 26.1 router that stopped for lack of room upgrade.
+- system: a 10G port that can't get its full receive buffer now starts with a smaller one, and a port that fails to start no longer leaves the router restarting over and over.
