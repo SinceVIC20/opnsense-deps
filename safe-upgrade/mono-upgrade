@@ -476,7 +476,7 @@ rescue_restore()
 	fi
 	sync
 	if [ "$(kenv -q mono.rescue_by)" = auto ]; then
-		BY="by itself, after it failed to start 4 times in a row"
+		BY="by itself, after it failed to start 3 times in a row"
 	else
 		BY="with mono_rescue at the U-Boot prompt"
 	fi
