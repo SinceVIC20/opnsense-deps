@@ -345,6 +345,8 @@ def port_info(n, names):
     }
     autoneg = sysctl('dev.dtsec.%d.pcs_autoneg' % n)
     port['pcs_autoneg'] = int(autoneg) if autoneg.isdigit() else None
+    now = sysctl('dev.dtsec.%d.pcs_autoneg_now' % n)
+    port['pcs_autoneg_now'] = int(now) if now.isdigit() else None
     phy_modes = sysctl('dev.dtsec.%d.sfp_phy_modes' % n)
     port['phy_modes'] = phy_modes or None
 

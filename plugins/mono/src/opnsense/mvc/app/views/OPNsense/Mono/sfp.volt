@@ -129,15 +129,19 @@ $(document).ready(function () {
         /* Always shown; only a port in 1G (1000BASE-X) mode can use it. */
         const applies = p.pcs_autoneg !== null && p.pcs_autoneg !== undefined;
         if (applies) {
-            t.append(row("{{ lang._('1000BASE-X autonegotiation') }}", p.pcs_autoneg ? "{{ lang._('on') }}" : "{{ lang._('off (fixed link)') }}"));
+            /* auto says which way it has settled */
+            const now = p.pcs_autoneg_now ? "{{ lang._('negotiated now') }}" : "{{ lang._('fixed link now') }}";
+            t.append(row("{{ lang._('1000BASE-X autonegotiation') }}", p.pcs_autoneg === 2 ? "{{ lang._('auto') }} (" + now + ")" :
+                (p.pcs_autoneg ? "{{ lang._('on') }}" : "{{ lang._('off (fixed link)') }}")));
         }
         const sel = $('<select class="selectpicker" data-width="auto">').append(
             $('<option value="1">').text("{{ lang._('On - auto-negotiate (default)') }}"),
-            $('<option value="0">').text("{{ lang._('Off - fixed 1G link') }}"));
+            $('<option value="0">').text("{{ lang._('Off - fixed 1G link') }}"),
+            $('<option value="2">').text("{{ lang._('Auto - negotiate, else a fixed 1G link') }}"));
         sel.val(applies ? String(p.pcs_autoneg) : '1');
         if (!applies) {
-            /* The list still opens to show the choices, but "Off" can't be picked. */
-            sel.find('option[value="0"]').prop('disabled', true);
+            /* The list still opens to show the choices, but only "On" can be picked. */
+            sel.find('option[value="0"], option[value="2"]').prop('disabled', true);
         }
         const btn = $('<button class="btn btn-primary" style="margin-left:10px">').text("{{ lang._('Apply') }}").prop('disabled', !applies);
         const msg = $('<span class="text-muted" style="margin-left:10px">');

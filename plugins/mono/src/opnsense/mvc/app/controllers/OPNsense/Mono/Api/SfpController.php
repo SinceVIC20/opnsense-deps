@@ -30,7 +30,7 @@ class SfpController extends ApiControllerBase
         return is_array($data) ? $data : ['offset' => 0, 'lines' => []];
     }
 
-    /* Turns 1000BASE-X autonegotiation on or off and keeps it as a tunable so it survives a restart. */
+    /* Sets 1000BASE-X autonegotiation off, on or auto and keeps it as a tunable so it survives a restart. */
     public function autonegAction()
     {
         if (!$this->request->isPost()) {
@@ -38,8 +38,8 @@ class SfpController extends ApiControllerBase
         }
         $dev = $this->request->getPost('device', 'string', '');
         $value = $this->request->getPost('value', 'int', -1);
-        if ($value !== 0 && $value !== 1) {
-            return ['result' => 'failed', 'message' => 'value must be 0 or 1'];
+        if ($value !== 0 && $value !== 1 && $value !== 2) {
+            return ['result' => 'failed', 'message' => 'value must be 0, 1 or 2'];
         }
         $port = null;
         foreach ($this->ports() as $p) {
