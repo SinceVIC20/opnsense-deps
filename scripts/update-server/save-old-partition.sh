@@ -16,10 +16,11 @@ say() { echo "$*"; }
 DISKSIZE=$(cat /sys/class/block/${DISK}/size)
 
 # What a filesystem looks like from its first bytes: UFS has 19540119 at byte 1372 of the superblock
-# (64 KiB in), ZFS has its pool details 16 KiB in.
+# (64 KiB in), ZFS has its pool details 16 KiB in. Recovery Linux's od only has its simplest options.
 kind()
 {
-	if dd if=/dev/${DISK} bs=512 skip=$(($1 + 128)) count=4 2>/dev/null | od -A n -t x4 -j 1372 -N 4 | grep -q 19540119; then
+	if dd if=/dev/${DISK} bs=512 skip=$(($1 + 130)) count=1 2>/dev/null | dd bs=1 skip=348 count=4 2>/dev/null |
+	    od -b | grep -q '031 001 124 031'; then
 		echo UFS
 	elif dd if=/dev/${DISK} bs=1024 skip=$(($1 / 2 + 16)) count=112 2>/dev/null | grep -a -q pool_guid; then
 		echo ZFS
@@ -70,6 +71,8 @@ copy_firmware()
 	A=$(dd if=/dev/${DISK} bs=1M count=32 2>/dev/null | md5sum | cut -c1-32)
 	B=$(dd if=/dev/${DISK} bs=1M skip=$((FW / 2048)) count=32 2>/dev/null | md5sum | cut -c1-32)
 	if [ "${A}" = "${B}" ]; then
+		# The new install starts with a clear start counter: the copy leaves out the record 8 MiB in.
+		dd if=/dev/zero of=/dev/${DISK} bs=512 count=1 seek=$((FW + 16376)) 2>/dev/null && sync
 		say "Start-up firmware area saved and checked."
 	else
 		say "The start-up firmware area copy does not match, do not flash."
