@@ -1,0 +1,4 @@
+date: 2026-11-02
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes the Traffic Graph's linear scale fit the traffic more closely.
+
+- dashboard: the Traffic Graph's linear scale fits the traffic on screen more closely, with finer steps, and glides to its new size within a couple of seconds instead of staying tall for minutes after a burst.
