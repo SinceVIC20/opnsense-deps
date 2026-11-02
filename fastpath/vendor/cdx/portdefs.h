@@ -230,6 +230,9 @@ int get_ofport_fman_and_portindex(uint32_t fm_index, uint32_t handle, uint32_t* 
 		uint32_t *portid);
 int alloc_iface_stats(uint32_t dev_type, struct dpa_iface_info *iface);
 void free_iface_stats(uint32_t dev_type, struct dpa_iface_info *iface);
+void cdxdrv_stop_ifcounters(void);
+struct sbuf;
+void cdx_ifcounter_report(struct sbuf *sb);
 int get_ofport_portid(uint32_t fm_idx, uint32_t handle, uint32_t *portid);
 int get_ofport_info(uint32_t fm_idx, uint32_t handle, uint32_t *channel, void **td);
 int get_ofport_max_dist(uint32_t fm_idx, uint32_t handle, uint32_t* max_dist);

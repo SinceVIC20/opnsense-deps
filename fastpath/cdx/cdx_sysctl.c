@@ -62,6 +62,19 @@ sysctl_cdx_fwd_queued(SYSCTL_HANDLER_ARGS)
 	return (error);
 }
 
+static int
+sysctl_cdx_offloaded_bytes(SYSCTL_HANDLER_ARGS)
+{
+	struct sbuf sb;
+	int error;
+
+	sbuf_new_for_sysctl(&sb, NULL, 128, req);
+	cdx_ifcounter_report(&sb);
+	error = sbuf_finish(&sb);
+	sbuf_delete(&sb);
+	return (error);
+}
+
 /* sysctl handler for active connections — reads the global atomic */
 static int
 sysctl_cdx_active_conn(SYSCTL_HANDLER_ARGS)
@@ -178,6 +191,12 @@ cdx_sysctl_init(void)
 	    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE,
 	    NULL, 0, sysctl_cdx_fwd_queued, "A",
 	    "Frames waiting in each port's forwarding queues");
+
+	SYSCTL_ADD_PROC(&cdx_sysctl_ctx,
+	    SYSCTL_CHILDREN(stats_node), OID_AUTO, "offloaded_bytes",
+	    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE,
+	    NULL, 0, sysctl_cdx_offloaded_bytes, "A",
+	    "Bytes FMan forwarded in and out of each VLAN and PPPoE interface");
 }
 
 void

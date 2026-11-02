@@ -224,12 +224,16 @@ cdx_dpa_bridge_init(void)
 /* SDK external hash table API (fm_ehash_freebsd.c) */
 extern void ExternalHashTableDelete(t_Handle h_HashTbl);
 extern void cdx_destroy_port_fqs(void);
+extern void cdxdrv_stop_ifcounters(void);
 
 void
 cdx_dpa_bridge_destroy(void)
 {
 	struct cdx_fman_info *fi = &cdx_fman_info_data;
 	uint32_t i;
+
+	/* Hand VLAN and PPPoE counters back before the records go. */
+	cdxdrv_stop_ifcounters();
 
 	/*
 	 * Step 1: Delete PCD on all ports FIRST.

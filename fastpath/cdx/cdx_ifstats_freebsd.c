@@ -23,6 +23,20 @@
 #include <sys/kernel.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
+#include <sys/callout.h>
+#include <sys/endian.h>
+#include <sys/epoch.h>
+#include <sys/eventhandler.h>
+#include <sys/jail.h>
+#include <sys/proc.h>
+#include <sys/sbuf.h>
+#include <sys/socket.h>
+#include <sys/ucred.h>
+
+#include <net/if.h>
+#include <net/if_var.h>
+#include <net/if_private.h>
+#include <net/vnet.h>
 
 #include "portdefs.h"
 #include "cdx.h"
@@ -53,6 +67,294 @@ static uint8_t ifstats_slot_used[NUM_IFSTATS_SLOTS];
 static void *stats_muram_handle;
 
 extern void *FmMurambaseAddr;
+
+/*
+ * Offloaded frames never reach a VLAN or PPPoE interface's own counters,
+ * so its counter function is wrapped to add what FMan counted in its
+ * record. One entry per record, PPPoE pool first, like ASK's ifstats_wide.
+ * Guarded by dpa_statslist_lock.
+ */
+struct cdx_ifcounter {
+	if_t		 ifp;
+	if_get_counter_t orig;
+	uint32_t	 rx_raw, tx_raw;	/* last 32-bit packet counts read */
+	uint64_t	 rx_pkts, tx_pkts;	/* the same carried past 2^32 */
+};
+
+static struct cdx_ifcounter ifcounters[MAX_LOGICAL_INTERFACES];
+
+/* 2^32 minimum-size frames take 289 s at 10G, so a 30 s read sees every wrap. */
+#define IFCOUNTER_SAMPLE_PERIOD	30
+static struct callout ifcounter_sampler;
+static void ifcounter_sampler_run(void *);
+static eventhandler_tag ifcounter_departure_tag;
+
+struct cdx_ifcounter_totals {
+	uint64_t rx_bytes, rx_pkts, tx_bytes, tx_pkts;
+};
+
+/* The record's entry in ifcounters, or -1 for an address that is not one. */
+static int
+ifcounter_index(const void *record)
+{
+	uintptr_t p = (uintptr_t)record;
+	uintptr_t pppoe_base = (uintptr_t)pppoe_slots;
+	uintptr_t if_base = (uintptr_t)ifstats_slots;
+
+	if (record == NULL || stats_mem == NULL)
+		return (-1);
+	if (p >= pppoe_base && p < if_base)
+		return ((p - pppoe_base) / sizeof(struct cdx_pppoe_iface_ifinfo));
+	if (p >= if_base && p < if_base +
+	    NUM_IFSTATS_SLOTS * sizeof(struct cdx_iface_ifinfo))
+		return (MAX_PPPoE_INTERFACES +
+		    (p - if_base) / sizeof(struct cdx_iface_ifinfo));
+	return (-1);
+}
+
+/* FMan writes the counts big-endian; read each word once so it can't tear. */
+static uint64_t
+ifcounter_rd64(const uint8_t *p)
+{
+	return (be64toh(*(const volatile uint64_t *)(const void *)p));
+}
+
+static uint32_t
+ifcounter_rd32(const uint8_t *p)
+{
+	return (be32toh(*(const volatile uint32_t *)(const void *)p));
+}
+
+/* Read one record and carry its packet counts past 32 bits. Caller holds
+ * dpa_statslist_lock. */
+static void
+ifcounter_sample(int index, struct cdx_ifcounter_totals *t)
+{
+	struct cdx_ifcounter *c = &ifcounters[index];
+	const uint8_t *rx, *tx;
+	uint32_t raw;
+
+	if (index < MAX_PPPoE_INTERFACES) {
+		rx = (const uint8_t *)&pppoe_slots[index];
+		tx = rx + sizeof(struct en_ehash_stats_with_ts);
+	} else {
+		rx = (const uint8_t *)&ifstats_slots[index -
+		    MAX_PPPoE_INTERFACES];
+		tx = rx + sizeof(struct en_ehash_stats);
+	}
+
+	t->rx_bytes = ifcounter_rd64(rx + offsetof(struct en_ehash_stats, bytes));
+	t->tx_bytes = ifcounter_rd64(tx + offsetof(struct en_ehash_stats, bytes));
+	raw = ifcounter_rd32(rx + offsetof(struct en_ehash_stats, pkts));
+	c->rx_pkts += (uint32_t)(raw - c->rx_raw);
+	c->rx_raw = raw;
+	raw = ifcounter_rd32(tx + offsetof(struct en_ehash_stats, pkts));
+	c->tx_pkts += (uint32_t)(raw - c->tx_raw);
+	c->tx_raw = raw;
+	t->rx_pkts = c->rx_pkts;
+	t->tx_pkts = c->tx_pkts;
+}
+
+/* The interface's own count plus what FMan counted for it. */
+static uint64_t
+cdx_ifcounter_get(if_t ifp, ift_counter cnt)
+{
+	struct cdx_ifcounter_totals t;
+	uint64_t value;
+	int i;
+
+	spin_lock(&dpa_statslist_lock);
+	for (i = 0; i < MAX_LOGICAL_INTERFACES; i++)
+		if (ifcounters[i].ifp == ifp)
+			break;
+	if (i == MAX_LOGICAL_INTERFACES) {
+		spin_unlock(&dpa_statslist_lock);
+		return (if_get_counter_default(ifp, cnt));
+	}
+	value = ifcounters[i].orig(ifp, cnt);
+	switch (cnt) {
+	case IFCOUNTER_IPACKETS:
+	case IFCOUNTER_IBYTES:
+	case IFCOUNTER_OPACKETS:
+	case IFCOUNTER_OBYTES:
+		ifcounter_sample(i, &t);
+		value += cnt == IFCOUNTER_IPACKETS ? t.rx_pkts :
+		    cnt == IFCOUNTER_IBYTES ? t.rx_bytes :
+		    cnt == IFCOUNTER_OPACKETS ? t.tx_pkts : t.tx_bytes;
+		break;
+	default:
+		break;
+	}
+	spin_unlock(&dpa_statslist_lock);
+	return (value);
+}
+
+/*
+ * Unwrap the interface and return its reference for the caller to drop.
+ * The record's totals move into the interface's own counters first, so its
+ * counts don't step back when the record goes. Caller holds
+ * dpa_statslist_lock.
+ */
+static if_t
+ifcounter_detach_locked(int index)
+{
+	struct cdx_ifcounter *c = &ifcounters[index];
+	struct cdx_ifcounter_totals t;
+	if_t ifp = c->ifp;
+
+	if (ifp == NULL)
+		return (NULL);
+	ifcounter_sample(index, &t);
+	if_inc_counter(ifp, IFCOUNTER_IPACKETS, t.rx_pkts);
+	if_inc_counter(ifp, IFCOUNTER_IBYTES, t.rx_bytes);
+	if_inc_counter(ifp, IFCOUNTER_OPACKETS, t.tx_pkts);
+	if_inc_counter(ifp, IFCOUNTER_OBYTES, t.tx_bytes);
+	if (ifp->if_get_counter == cdx_ifcounter_get)
+		if_setgetcounterfn(ifp, c->orig);
+	memset(c, 0, sizeof(*c));
+	return (ifp);
+}
+
+/* Wrap a VLAN or PPPoE interface's counters around its new record. */
+static void
+ifcounter_attach(uint32_t dev_type, struct dpa_iface_info *iface)
+{
+	if_t ifp;
+	int i, index;
+
+	if (!(dev_type & (IF_TYPE_VLAN | IF_TYPE_PPPOE)))
+		return;
+	CURVNET_SET(TD_TO_VNET(curthread));
+	ifp = ifunit_ref((const char *)iface->name);
+	CURVNET_RESTORE();
+	if (ifp == NULL)
+		return;
+
+	spin_lock(&dpa_statslist_lock);
+	index = ifcounter_index(iface->stats);
+	for (i = 0; i < MAX_LOGICAL_INTERFACES; i++)
+		if (ifcounters[i].ifp == ifp)
+			break;
+	if (index < 0 || i < MAX_LOGICAL_INTERFACES) {
+		/* already counted through another record */
+		spin_unlock(&dpa_statslist_lock);
+		if_rele(ifp);
+		return;
+	}
+	/* the record was just cleared, so its counts start from zero */
+	ifcounters[index] = (struct cdx_ifcounter){
+		.ifp = ifp,
+		.orig = ifp->if_get_counter,
+	};
+	if_setgetcounterfn(ifp, cdx_ifcounter_get);
+	if (!callout_pending(&ifcounter_sampler))
+		callout_reset(&ifcounter_sampler, IFCOUNTER_SAMPLE_PERIOD * hz,
+		    ifcounter_sampler_run, NULL);
+	spin_unlock(&dpa_statslist_lock);
+}
+
+/* Read every wrapped record before its packet count can come round. Runs
+ * with dpa_statslist_lock held. */
+static void
+ifcounter_sampler_run(void *arg __unused)
+{
+	struct cdx_ifcounter_totals t;
+	bool active = false;
+	int i;
+
+	for (i = 0; i < MAX_LOGICAL_INTERFACES; i++) {
+		if (ifcounters[i].ifp != NULL) {
+			ifcounter_sample(i, &t);
+			active = true;
+		}
+	}
+	if (active)
+		callout_reset(&ifcounter_sampler, IFCOUNTER_SAMPLE_PERIOD * hz,
+		    ifcounter_sampler_run, NULL);
+}
+
+/* An interface going away, or being renamed, is unwrapped before its memory
+ * can go. Its counts carry over, so a rename doesn't step them back. */
+static void
+ifcounter_departure(void *arg __unused, if_t ifp)
+{
+	if_t gone = NULL;
+	int i;
+
+	spin_lock(&dpa_statslist_lock);
+	for (i = 0; i < MAX_LOGICAL_INTERFACES; i++) {
+		if (ifcounters[i].ifp == ifp) {
+			gone = ifcounter_detach_locked(i);
+			break;
+		}
+	}
+	spin_unlock(&dpa_statslist_lock);
+	if (gone != NULL)
+		if_rele(gone);
+}
+
+/*
+ * cdx_ifcounter_report — One line per wrapped interface: its name and the
+ * bytes FMan forwarded in and out of it, which leaves the CPU's share as the
+ * rest of its counts.
+ */
+void
+cdx_ifcounter_report(struct sbuf *sb)
+{
+	struct ifcounter_line {
+		char name[IFNAMSIZ];
+		uint64_t rx, tx;
+	} *line;
+	struct cdx_ifcounter_totals t;
+	int i, n = 0;
+
+	if (stats_mem == NULL)
+		return;
+	line = malloc(MAX_LOGICAL_INTERFACES * sizeof(*line), M_TEMP, M_WAITOK);
+	/* copied out under the lock, printed after: printing may sleep */
+	spin_lock(&dpa_statslist_lock);
+	for (i = 0; i < MAX_LOGICAL_INTERFACES; i++) {
+		if (ifcounters[i].ifp == NULL)
+			continue;
+		ifcounter_sample(i, &t);
+		strlcpy(line[n].name, if_name(ifcounters[i].ifp),
+		    sizeof(line[n].name));
+		line[n].rx = t.rx_bytes;
+		line[n].tx = t.tx_bytes;
+		n++;
+	}
+	spin_unlock(&dpa_statslist_lock);
+	for (i = 0; i < n; i++)
+		sbuf_printf(sb, "%s %ju %ju\n", line[i].name,
+		    (uintmax_t)line[i].rx, (uintmax_t)line[i].tx);
+	free(line, M_TEMP);
+}
+
+/*
+ * cdxdrv_stop_ifcounters — Unwrap every interface on module unload.
+ */
+void
+cdxdrv_stop_ifcounters(void)
+{
+	if_t gone[MAX_LOGICAL_INTERFACES];
+	int i;
+
+	if (stats_mem == NULL)
+		return;
+	EVENTHANDLER_DEREGISTER(ifnet_departure_event,
+	    ifcounter_departure_tag);
+	spin_lock(&dpa_statslist_lock);
+	for (i = 0; i < MAX_LOGICAL_INTERFACES; i++)
+		gone[i] = ifcounter_detach_locked(i);
+	callout_stop(&ifcounter_sampler);
+	spin_unlock(&dpa_statslist_lock);
+	callout_drain(&ifcounter_sampler);
+	/* readers already inside cdx_ifcounter_get finish before unload */
+	NET_EPOCH_WAIT();
+	for (i = 0; i < MAX_LOGICAL_INTERFACES; i++)
+		if (gone[i] != NULL)
+			if_rele(gone[i]);
+}
 
 /*
  * cdxdrv_init_stats — Allocate MURAM and create free-lists.
@@ -98,6 +400,10 @@ cdxdrv_init_stats(void *muram_handle)
 	memset(pppoe_slot_used, 0, sizeof(pppoe_slot_used));
 	memset(ifstats_slot_used, 0, sizeof(ifstats_slot_used));
 	spin_unlock(&dpa_statslist_lock);
+
+	callout_init_mtx(&ifcounter_sampler, &dpa_statslist_lock.mtx, 0);
+	ifcounter_departure_tag = EVENTHANDLER_REGISTER(ifnet_departure_event,
+	    ifcounter_departure, NULL, EVENTHANDLER_PRI_ANY);
 
 	printf("cdx: cdxdrv_init_stats: %u PPPoE + %u regular slots\n",
 	    MAX_PPPoE_INTERFACES, NUM_IFSTATS_SLOTS);
@@ -188,6 +494,7 @@ alloc_iface_stats(uint32_t dev_type, struct dpa_iface_info *iface)
 		return (FAILURE);
 	}
 
+	ifcounter_attach(dev_type, iface);
 	return (SUCCESS);
 }
 
@@ -202,6 +509,8 @@ void
 free_iface_stats(uint32_t dev_type __unused, struct dpa_iface_info *iface)
 {
 	uintptr_t p, pppoe_base, if_base;
+	if_t ifp = NULL;
+	int index;
 
 	if (iface->stats == NULL)
 		return;
@@ -211,6 +520,9 @@ free_iface_stats(uint32_t dev_type __unused, struct dpa_iface_info *iface)
 	if_base = (uintptr_t)ifstats_slots;
 
 	spin_lock(&dpa_statslist_lock);
+	index = ifcounter_index(iface->stats);
+	if (index >= 0)
+		ifp = ifcounter_detach_locked(index);
 	if (p >= pppoe_base && p < if_base) {
 		pppoe_slot_used[(p - pppoe_base) /
 		    sizeof(struct cdx_pppoe_iface_ifinfo)] = 0;
@@ -223,6 +535,8 @@ free_iface_stats(uint32_t dev_type __unused, struct dpa_iface_info *iface)
 		    "slot\n", iface->stats);
 	}
 	spin_unlock(&dpa_statslist_lock);
+	if (ifp != NULL)
+		if_rele(ifp);
 
 	iface->stats = NULL;
 
