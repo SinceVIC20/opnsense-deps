@@ -75,11 +75,40 @@ space_short()
 	[ "${FREE}" -lt "${NEED}" ] && echo "${FREE} ${NEED}"
 }
 
+movable_boot_files()
+{
+	# Files on the boot partition that updates don't use, largest first as "<bytes> <path>".
+	# Folders, anything U-Boot may load (its scripts, device trees) and small notes stay.
+	find ${M} -maxdepth 1 -type f -size +128 ! -name kernel.img ! -name kernel.old ! -name mono-boot.txt \
+	    ! -name boot.scr ! -name boot.cmd ! -name uEnv.txt ! -name '*.dtb' ! -name '*.dtbo' \
+	    -exec stat -f '%z %N' {} + | sort -rn
+}
+
 extra_boot_files()
 {
-	# Files on the boot partition that updates don't use, with their size in MB.
-	find ${M} -maxdepth 1 -type f ! -name kernel.img ! -name kernel.old ! -name mono-boot.txt \
-	    -exec stat -f '%N %z' {} + | awk '{ n = split($1, a, "/"); printf "%s (%d MB)\n", a[n], $2 / 1048576 }'
+	# The same files with their size in MB, for the notice.
+	movable_boot_files | while read -r SIZE F; do
+		echo "$(basename "${F}") ($(( SIZE / 1048576 )) MB)"
+	done
+}
+
+free_boot_space()
+{
+	# Moves unused boot files to the main disk, largest first, until ${1} KB
+	# more is free, so a kernel update needn't wait for the owner to do it.
+	# The main disk keeps at least 64 MB free.
+	WANT=${1}
+	D=${STATE}/boot-moved/$(date +%Y%m%d-%H%M%S)
+	movable_boot_files | while read -r SIZE F; do
+		[ "${WANT}" -gt 0 ] || break
+		[ $(( $(df -k ${STATE} | awk 'NR == 2 { print $4 }') - SIZE / 1024 )) -ge 65536 ] || continue
+		mkdir -p ${D}
+		if copy_verified "${F}" "${D}/$(basename "${F}")" && rm -f "${F}"; then
+			say "moved ${F} ($(( SIZE / 1048576 )) MB) to ${D} to make room for the kernel"
+			logger -t mono-upgrade "moved ${F} to ${D} to make room on the boot partition"
+			WANT=$(( WANT - SIZE / 1024 ))
+		fi
+	done
 }
 
 space_guard()
@@ -87,6 +116,11 @@ space_guard()
 	# While the boot partition is too full, hold the kernel, base and offload
 	# modules together so an update can't install only part of them.
 	SHORT=$(space_short)
+	if [ -n "${SHORT}" ]; then
+		set -- ${SHORT}
+		free_boot_space $(( ${2} - ${1} ))
+		SHORT=$(space_short)
+	fi
 	if [ -n "${SHORT}" ]; then
 		touch ${STATE}/space.locks
 		if [ ! -f ${VERSIONDIR}/kernel.lock ]; then
@@ -422,6 +456,10 @@ cmd_shutdown()
 	NEED=$(( $(stat -f %z ${K}) * 2 / 1024 + 2048 ))
 	FREE=$(( $(df -k ${M} | awk 'NR == 2 { print $4 }') + $(stat -f %z ${M}/kernel.old 2>/dev/null || echo 0) / 1024 ))
 	if [ "${FREE}" -lt "${NEED}" ]; then
+		free_boot_space $(( NEED - FREE ))
+		FREE=$(( $(df -k ${M} | awk 'NR == 2 { print $4 }') + $(stat -f %z ${M}/kernel.old 2>/dev/null || echo 0) / 1024 ))
+	fi
+	if [ "${FREE}" -lt "${NEED}" ]; then
 		refuse_kernel "boot partition has ${FREE} KB free, needs ${NEED} KB" space
 		return 0
 	fi
@@ -463,6 +501,11 @@ cmd_precheck()
 		return 1
 	fi
 	SHORT=$(space_short)
+	if [ -n "${SHORT}" ]; then
+		set -- ${SHORT}
+		free_boot_space $(( ${2} - ${1} ))
+		SHORT=$(space_short)
+	fi
 	if [ -n "${SHORT}" ]; then
 		set -- ${SHORT}
 		echo "The boot partition (${M}) needs $(( (${2} - ${1} + 1023) / 1024 )) MB more free space for the new kernel."
