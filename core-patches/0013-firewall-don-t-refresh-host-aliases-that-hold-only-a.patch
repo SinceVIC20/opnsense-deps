@@ -1,7 +1,7 @@
 From 4e1a9d07117e20a16ef20df1ee522c7f806c6093 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 14:16:48 -0700
-Subject: [PATCH 13/20] firewall: don't refresh host aliases that hold only
+Subject: [PATCH 13/21] firewall: don't refresh host aliases that hold only
  addresses
 
 A host alias of addresses, ranges and networks has nothing to look up,
