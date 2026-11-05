@@ -160,6 +160,10 @@ pppoe_query_netgraph(struct cmm_interface *itf)
 	char path[128];
 	char pppoe_path[128];
 	char session_hook[NG_HOOKSIZ];
+	/* Other nodes (NetFlow) can hook onto ng_pppoe too, so every
+	 * hook but "ethernet" is tried until one is a connected session. */
+	char hooks[8][NG_HOOKSIZ];
+	int nhooks = 0, h;
 	uint32_t pppoe_id;
 	int rc = -1;
 
@@ -231,9 +235,9 @@ pppoe_query_netgraph(struct cmm_interface *itf)
 					itf->pppoe_parent_ifindex =
 					    ng_ether_ifindex(csock,
 					    li->nodeinfo.id, li->nodeinfo.name);
-				} else if (!found_session) {
-					strlcpy(session_hook, li->ourhook,
-					    sizeof(session_hook));
+				} else if (nhooks < 8) {
+					strlcpy(hooks[nhooks++], li->ourhook,
+					    NG_HOOKSIZ);
 					found_session = 1;
 				}
 			}
@@ -251,6 +255,7 @@ pppoe_query_netgraph(struct cmm_interface *itf)
 				goto out;
 			}
 			found_session = 1;
+			strlcpy(hooks[nhooks++], session_hook, NG_HOOKSIZ);
 
 			snprintf(pppoe_path, sizeof(pppoe_path),
 			    "[%x]:", pppoe_id);
@@ -295,22 +300,22 @@ pppoe_query_netgraph(struct cmm_interface *itf)
 		}
 	}
 
-	/* Step 2: Query session info from ng_pppoe */
-	{
+	/* Step 2: Query session info from ng_pppoe, hook by hook */
+	for (h = 0; h < nhooks; h++) {
 		struct ngpppoe_init_data qmsg;
 		struct ng_mesg *sresp;
 		struct ngpppoe_session_info *si;
 
 		memset(&qmsg, 0, sizeof(qmsg));
-		strlcpy(qmsg.hook, session_hook, sizeof(qmsg.hook));
+		strlcpy(qmsg.hook, hooks[h], sizeof(qmsg.hook));
 		qmsg.data_len = 0;
 
 		if (NgSendMsg(csock, pppoe_path, NGM_PPPOE_COOKIE,
 		    NGM_PPPOE_GET_SESSION_INFO, &qmsg, sizeof(qmsg)) < 0) {
 			cmm_print(CMM_LOG_DEBUG,
-			    "pppoe: GET_SESSION_INFO for %s failed: %s",
-			    itf->ifname, strerror(errno));
-			goto out;
+			    "pppoe: GET_SESSION_INFO for %s hook %s failed: %s",
+			    itf->ifname, hooks[h], strerror(errno));
+			continue;
 		}
 
 		sresp = NULL;
@@ -318,26 +323,27 @@ pppoe_query_netgraph(struct cmm_interface *itf)
 		    sresp == NULL) {
 			cmm_print(CMM_LOG_DEBUG,
 			    "pppoe: recv SESSION_INFO failed");
-			goto out;
+			continue;
 		}
 
 		si = (struct ngpppoe_session_info *)sresp->data;
-		itf->pppoe_session_id = si->session_id;
-		memcpy(itf->pppoe_peer_mac, si->peer_mac, ETHER_ADDR_LEN);
 
 		/* State 7 = PPPOE_CONNECTED, State 6 = PPPOE_NEWCONNECTED */
-		if (si->state < 6) {
+		if (sresp->header.arglen < sizeof(*si) || si->state < 6) {
 			cmm_print(CMM_LOG_DEBUG,
-			    "pppoe: %s session not connected (state=%u)",
-			    itf->ifname, si->state);
+			    "pppoe: %s hook %s not a connected session",
+			    itf->ifname, hooks[h]);
 			free(sresp);
-			goto out;
+			continue;
 		}
+		itf->pppoe_session_id = si->session_id;
+		memcpy(itf->pppoe_peer_mac, si->peer_mac, ETHER_ADDR_LEN);
 		free(sresp);
-	}
 
-	if (itf->pppoe_parent_ifindex != 0)
-		rc = 0;
+		if (itf->pppoe_parent_ifindex != 0)
+			rc = 0;
+		break;
+	}
 
 out:
 	close(csock);
