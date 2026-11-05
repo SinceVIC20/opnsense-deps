@@ -6,3 +6,4 @@ This release comes from the temporary, unofficial Mono Gateway update server at 
 - updates: rolling back to the previous kernel now also puts back the offload files that ran with it, so the two match again.
 - updates: copying the configuration from an older install in Recovery Linux now recognises a UFS partition, and a router that was stuck restarting before the flash no longer tries a rescue on the new image's first start.
 - interfaces: PPPoE on a VLAN whose device name has a dot, such as vlan0.7 for Telekom's VLAN 7, is now offloaded instead of all its traffic staying on the CPU.
+- interfaces: choosing a fixed 1000baseT speed for a copper port now gives a working full-duplex link instead of half duplex, which the port can't run.
