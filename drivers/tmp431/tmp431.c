@@ -18,7 +18,7 @@
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/module.h>
-#include <sys/mutex.h>
+#include <sys/sx.h>
 #include <sys/sysctl.h>
 
 #include <dev/iicbus/iicbus.h>
@@ -59,7 +59,7 @@
 
 struct tmp431_softc {
 	device_t		dev;
-	struct mtx		mtx;
+	struct sx		lock;	/* I2C reads sleep, so no mutex */
 	bool			extended_range;
 	char			label[64];
 	char			name_local[80];
@@ -158,11 +158,11 @@ tmp431_sysctl_temp(SYSCTL_HANDLER_ARGS)
 	else
 		msb_reg = TMP431_REMOTE_TEMP_MSB;
 
-	mtx_lock(&sc->mtx);
+	sx_xlock(&sc->lock);
 
 	error = tmp431_read_temp16(sc->dev, msb_reg, &raw);
 	if (error != 0) {
-		mtx_unlock(&sc->mtx);
+		sx_xunlock(&sc->lock);
 		return (EIO);
 	}
 
@@ -176,17 +176,17 @@ tmp431_sysctl_temp(SYSCTL_HANDLER_ARGS)
 	if (channel == TMP431_CHAN_REMOTE) {
 		error = tmp431_read8(sc->dev, TMP431_STATUS, &status);
 		if (error != 0) {
-			mtx_unlock(&sc->mtx);
+			sx_xunlock(&sc->lock);
 			return (EIO);
 		}
 		if ((status & TMP431_STATUS_REMOTE_OPEN) ||
 		    (raw & ~0xf) == 0) {
-			mtx_unlock(&sc->mtx);
+			sx_xunlock(&sc->lock);
 			return (ENXIO);
 		}
 	}
 
-	mtx_unlock(&sc->mtx);
+	sx_xunlock(&sc->lock);
 
 	val = tmp431_raw_to_decikelvin(raw, sc->extended_range);
 
@@ -243,7 +243,7 @@ tmp431_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	mtx_init(&sc->mtx, "tmp431", NULL, MTX_DEF);
+	sx_init(&sc->lock, "tmp431");
 
 	/* Set conversion rate to 2 Hz */
 	error = tmp431_write8(dev, TMP431_CONV_RATE_W, TMP431_CONV_RATE_2HZ);
@@ -325,7 +325,7 @@ tmp431_attach(device_t dev)
 fail_sysctl:
 	sysctl_ctx_free(&sc->sysctl_ctx);
 fail:
-	mtx_destroy(&sc->mtx);
+	sx_destroy(&sc->lock);
 	return (ENXIO);
 }
 
@@ -346,7 +346,7 @@ tmp431_detach(device_t dev)
 		tmp431_write8(dev, TMP431_CONFIG_W, config);
 	}
 
-	mtx_destroy(&sc->mtx);
+	sx_destroy(&sc->lock);
 
 	return (0);
 }
