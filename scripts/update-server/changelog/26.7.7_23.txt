@@ -1,0 +1,4 @@
+date: 2026-11-05
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It offloads a PPPoE WAN also when NetFlow is turned on for it.
+
+- interfaces: a PPPoE WAN is now offloaded also when NetFlow (Reporting, NetFlow) listens on it. Before, the NetFlow hooks on the PPPoE connection were taken for the session, so all WAN traffic stayed on the CPU.
