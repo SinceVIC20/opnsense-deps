@@ -21,6 +21,7 @@
 
 #include <netgraph/ng_message.h>
 #include <netgraph/ng_iface.h>
+#include <netgraph/ng_ether.h>
 #include <netgraph/ng_pppoe.h>
 #include <netgraph.h>
 
@@ -132,6 +133,26 @@ ng_find_pppoe(int csock, uint32_t start, uint32_t *pppoe_id,
 	return (-1);
 }
 
+/* The ether node's name has '.' and ':' changed to '_' (vlan0.7 -> vlan0_7),
+ * so ask the node for its interface's real name. */
+static unsigned int
+ng_ether_ifindex(int csock, uint32_t id, const char *nodename)
+{
+	char npath[NG_PATHSIZ];
+	struct ng_mesg *resp = NULL;
+	unsigned int idx = 0;
+
+	snprintf(npath, sizeof(npath), "[%x]:", id);
+	if (NgSendMsg(csock, npath, NGM_ETHER_COOKIE, NGM_ETHER_GET_IFNAME,
+	    NULL, 0) >= 0 && NgAllocRecvMsg(csock, &resp, NULL) >= 0 &&
+	    resp != NULL)
+		idx = if_nametoindex((char *)resp->data);
+	free(resp);
+	if (idx == 0)
+		idx = if_nametoindex(nodename);
+	return (idx);
+}
+
 static int
 pppoe_query_netgraph(struct cmm_interface *itf)
 {
@@ -208,8 +229,8 @@ pppoe_query_netgraph(struct cmm_interface *itf)
 
 				if (strcmp(li->ourhook, "ethernet") == 0) {
 					itf->pppoe_parent_ifindex =
-					    if_nametoindex(
-					    li->nodeinfo.name);
+					    ng_ether_ifindex(csock,
+					    li->nodeinfo.id, li->nodeinfo.name);
 				} else if (!found_session) {
 					strlcpy(session_hook, li->ourhook,
 					    sizeof(session_hook));
@@ -256,7 +277,8 @@ pppoe_query_netgraph(struct cmm_interface *itf)
 					if (strcmp(pli->ourhook,
 					    "ethernet") == 0) {
 						itf->pppoe_parent_ifindex =
-						    if_nametoindex(
+						    ng_ether_ifindex(csock,
+						    pli->nodeinfo.id,
 						    pli->nodeinfo.name);
 						break;
 					}
