@@ -28,7 +28,6 @@
 #include <sys/socket.h>
 #include <net/if.h>
 #include <net/if_var.h>
-#include <net/ethernet.h>
 
 #include "cdx_ioctl.h"
 #include "cdx_dpa_bridge.h"
@@ -54,6 +53,11 @@ void	*dtsec_rm_rx_cg(if_t ifp);
 
 /* NCSW QMan types (for e_QmFQChannel, t_QmReceivedFrameCallback) */
 #include <contrib/ncsw/inc/Peripherals/qm_ext.h>
+
+/* From net/ethernet.h, which clashes with the CDX headers. */
+#ifndef ETHER_ALIGN
+#define	ETHER_ALIGN	2
+#endif
 
 /* ExternalHashTableModifyMissNextEngine — provided by kernel fm_ehash.c */
 extern t_Error ExternalHashTableModifyMissNextEngine(t_Handle h_HashTbl,
