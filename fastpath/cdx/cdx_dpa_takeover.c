@@ -28,6 +28,7 @@
 #include <sys/socket.h>
 #include <net/if.h>
 #include <net/if_var.h>
+#include <net/ethernet.h>
 
 #include "cdx_ioctl.h"
 #include "cdx_dpa_bridge.h"
@@ -192,28 +193,45 @@ cdx_dist_fq_rx_callback(t_Handle app, t_Handle qm_fqr,
 	if (app != NULL) {
 		if_t ifp = (if_t)app;
 		struct mbuf *m;
+		uint32_t len;
 
-		/* Past the port's share the buffer goes back to its pool. */
-		if (!dtsec_rm_rx_cpu_admit(frame->bpid, frame_va)) {
-			dtsec_rm_pool_rx_refill_bpid(frame->bpid);
-			return (e_RX_STORE_RESPONSE_CONTINUE);
+		len = DPAA_FD_GET_LENGTH(frame);
+
+		/*
+		 * A frame that fits a cluster is copied, so its pool buffer is
+		 * freed now instead of waiting in a socket, and it never counts
+		 * against the port's share below.
+		 */
+		if (len <= MCLBYTES - ETHER_ALIGN &&
+		    (m = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR)) != NULL) {
+			m->m_data += ETHER_ALIGN;
+			memcpy(mtod(m, void *),
+			    (char *)frame_va + DPAA_FD_GET_OFFSET(frame), len);
+			dtsec_rm_buf_free_external(frame->bpid, frame_va);
+		} else {
+			/* Past the port's share the buffer goes back. */
+			if (!dtsec_rm_rx_cpu_admit(frame->bpid, frame_va)) {
+				dtsec_rm_pool_rx_refill_bpid(frame->bpid);
+				return (e_RX_STORE_RESPONSE_CONTINUE);
+			}
+
+			m = m_gethdr(M_NOWAIT, MT_HEADER);
+			if (m == NULL) {
+				dtsec_rm_rx_cpu_done(frame->bpid);
+				goto drop;
+			}
+
+			m_extadd(m, frame_va, CDX_RX_BUFFER_SIZE,
+			    cdx_dist_mext_free, frame_va,
+			    (void *)(uintptr_t)frame->bpid, 0,
+			    EXT_NET_DRV);
+			m->m_data = (char *)frame_va +
+			    DPAA_FD_GET_OFFSET(frame);
 		}
-
-		m = m_gethdr(M_NOWAIT, MT_HEADER);
-		if (m == NULL) {
-			dtsec_rm_rx_cpu_done(frame->bpid);
-			goto drop;
-		}
-
-		m_extadd(m, frame_va, CDX_RX_BUFFER_SIZE,
-		    cdx_dist_mext_free, frame_va,
-		    (void *)(uintptr_t)frame->bpid, 0,
-		    EXT_NET_DRV);
 
 		m->m_pkthdr.rcvif = ifp;
-		m->m_data = (char *)frame_va + DPAA_FD_GET_OFFSET(frame);
-		m->m_len = DPAA_FD_GET_LENGTH(frame);
-		m->m_pkthdr.len = m->m_len;
+		m->m_len = len;
+		m->m_pkthdr.len = len;
 
 		/* ether_input() counts the bytes. */
 		if_inc_counter(ifp, IFCOUNTER_IPACKETS, 1);
