@@ -159,6 +159,7 @@ cdx_dist_mext_free(struct mbuf *m)
  * creation in cdx_create_port_fqs).  NULL means no dtsec mapping.
  */
 static volatile uint64_t cdx_dist_fq_rx_count;
+static uint32_t cdx_rx_hashkey;
 
 static e_RxStoreResponse
 cdx_dist_fq_rx_callback(t_Handle app, t_Handle qm_fqr,
@@ -236,6 +237,17 @@ cdx_dist_fq_rx_callback(t_Handle app, t_Handle qm_fqr,
 		m->m_pkthdr.rcvif = ifp;
 		m->m_len = len;
 		m->m_pkthdr.len = len;
+
+		/*
+		 * Every frame between two hosts lands on the same queue and
+		 * core. A flow hash lets netisr spread IP and TCP over the
+		 * cores when net.isr.dispatch is deferred or hybrid.
+		 */
+		if (__predict_false(cdx_rx_hashkey == 0))
+			cdx_rx_hashkey = m_ether_tcpip_hash_init();
+		m->m_pkthdr.flowid = m_ether_tcpip_hash(MBUF_HASHFLAG_L3 |
+		    MBUF_HASHFLAG_L4, m, cdx_rx_hashkey);
+		M_HASHTYPE_SET(m, M_HASHTYPE_OPAQUE_HASH);
 
 		/* ether_input() counts the bytes. */
 		if_inc_counter(ifp, IFCOUNTER_IPACKETS, 1);
