@@ -1,6 +1,10 @@
-date: 2026-11-05
-This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It spreads the traffic the CPU handles over all four cores and stops downloads to the router itself from dropping packets.
+date: 2026-11-06
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It makes traffic to the router itself much faster, spreads the traffic the CPU handles over all four cores and stops downloads to the router itself from dropping packets.
 
 - system: traffic the CPU handles itself, such as downloads to the router, VPN endpoints and anything not offloaded, now runs on all four cores instead of the one core that received it. Several connections to the router went from about 550 Mbit/s to 1 Gbit/s and more, and forwarded fragmented packets from about 770 Mbit/s to 1.3 Gbit/s. Offloaded traffic is not affected.
+- system: TCP connections that end on the router itself, such as downloads to the router or a service running on it, now have their packets combined before the system handles them. A single download to the router went from about 650 Mbit/s to 2.2 Gbit/s on 10G, and on a 1G port it now reaches full speed. Only connections the router itself holds are combined; forwarded, port-forwarded and offloaded traffic never is. It can be turned off with the sysctl hw.dpaa.rx_lro=0.
 - interfaces: a single TCP download to the router itself no longer drops packets and slows down with the default window size. Each received packet held a large buffer while waiting to be read, so a busy connection hit the limit that keeps buffers free for offloaded traffic.
 - interfaces: traffic on VLANs and fragmented packets are now spread by connection like other traffic, which also helps how LAGG chooses a port for VLAN-tagged frames.
+- interfaces: the hardware checksum check is now trusted only when the hardware really checked the packet. Before, every TCP and UDP packet was taken as checked, and with offload on, packets for the router were checked a second time in software.
+- interfaces: tcpdump on a port now also shows the packets the router sends, not only the ones it receives.
+- cmmctl: cmmctl ff enable and disable now say they are not supported on this hardware, instead of reporting a change that never happened.
