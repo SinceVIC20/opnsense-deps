@@ -42,6 +42,8 @@
 void	dtsec_rm_buf_free_external(uint8_t bpid, void *buf);
 void	dtsec_rm_pool_rx_refill_bpid(uint8_t bpid);
 bool	dtsec_rm_rx_cpu_admit(uint8_t bpid, void *buf);
+uint32_t dtsec_rm_rx_csum(uint8_t bpid, void *buf, void *frame,
+	    uint32_t *sum);
 void	dtsec_rm_rx_cpu_done(uint8_t bpid);
 void	*dtsec_rm_rx_cg(if_t ifp);
 
@@ -198,8 +200,11 @@ cdx_dist_fq_rx_callback(t_Handle app, t_Handle qm_fqr,
 	if (app != NULL) {
 		if_t ifp = (if_t)app;
 		struct mbuf *m;
-		uint32_t len;
+		uint32_t csum_flags, csum_sum, len;
 
+		/* The hardware's checksum check, read before the copy frees it. */
+		csum_flags = dtsec_rm_rx_csum(frame->bpid, frame_va, frame,
+		    &csum_sum);
 		len = DPAA_FD_GET_LENGTH(frame);
 
 		/*
@@ -237,6 +242,8 @@ cdx_dist_fq_rx_callback(t_Handle app, t_Handle qm_fqr,
 		m->m_pkthdr.rcvif = ifp;
 		m->m_len = len;
 		m->m_pkthdr.len = len;
+		m->m_pkthdr.csum_flags |= csum_flags;
+		m->m_pkthdr.csum_data = csum_sum;
 
 		/*
 		 * Every frame between two hosts lands on the same queue and
