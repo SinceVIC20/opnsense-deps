@@ -25,33 +25,19 @@ ff_usage(void)
 	fprintf(stderr,
 	    "usage: cmmctl ff <command>\n\n"
 	    "Commands:\n"
-	    "  enable                Enable fast-forward offload\n"
-	    "  disable               Disable fast-forward offload\n"
+	    "  enable                Not supported on this hardware\n"
+	    "  disable               Not supported on this hardware\n"
 	    "  ipsec-frag enable     Enable IPsec pre-fragmentation\n"
 	    "  ipsec-frag disable    Disable IPsec pre-fragmentation\n");
 }
 
+/* CDX keeps the fast-forward switch but nothing reads it, so say so. */
 static int
-ff_control(int fd, int enable)
+ff_control(int fd __unused, int enable)
 {
-	fpp_ff_ctrl_cmd_t cmd;
-	int16_t rc;
-
-	memset(&cmd, 0, sizeof(cmd));
-	cmd.enable = enable ? 1 : 0;
-
-	if (ctrl_command(fd, FPP_CMD_IPV4_FF_CONTROL, &cmd, sizeof(cmd),
-	    &rc, NULL, NULL) < 0)
-		return (1);
-
-	if (rc != 0) {
-		fprintf(stderr, "ff %s: error %d\n",
-		    enable ? "enable" : "disable", rc);
-		return (1);
-	}
-
-	printf("fast-forward %s\n", enable ? "enabled" : "disabled");
-	return (0);
+	fprintf(stderr, "ff %s: not supported on this hardware, nothing "
+	    "changed\n", enable ? "enable" : "disable");
+	return (1);
 }
 
 static int
