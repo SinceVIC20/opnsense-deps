@@ -67,6 +67,12 @@ export default class MonoCpu extends BaseWidget {
             maxValue: 104,
             yMinFormatter: () => '0',
             yMaxFormatter: () => '100',
+            // Show each line's real value; Smoothie's own tooltip runs it through yMaxFormatter.
+            tooltipFormatter: function (timestamp, data) {
+                const lines = [SmoothieChart.timeFormatter(new Date(timestamp))];
+                data.forEach(d => lines.push(`<span style="color:${d.series.options.strokeStyle}">${Math.round(d.value)}</span>`));
+                return lines.join('<br>');
+            },
             labels: {
                 fillStyle: Chart.defaults.color,
                 precision: 0,
