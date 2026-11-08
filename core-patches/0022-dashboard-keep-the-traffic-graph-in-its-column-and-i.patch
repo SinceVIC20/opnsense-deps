@@ -1,7 +1,7 @@
 From f0de843341cce8010b60e240ecacbe0f85ed51eb Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Sat, 7 Nov 2026 19:22:09 -0700
-Subject: [PATCH 22/22] dashboard: keep the traffic graph in its column and its
+Subject: [PATCH 22/24] dashboard: keep the traffic graph in its column and its
  line at a fifth of the width
 
 ---

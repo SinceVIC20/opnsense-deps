@@ -1,7 +1,7 @@
 From 96700be520186fe1fc40ad7173c2b61e43c62a20 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Mon, 2 Nov 2026 11:50:21 -0700
-Subject: [PATCH 20/22] dashboard: show the traffic graph's in and out dots
+Subject: [PATCH 20/24] dashboard: show the traffic graph's in and out dots
  either side of its line
 
 The two dots sat on the line itself, so one hid the other where in and
