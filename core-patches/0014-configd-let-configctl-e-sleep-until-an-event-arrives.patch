@@ -1,7 +1,7 @@
 From 7432971190986d4ca34409b725deaa2195b017ed Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 14:16:49 -0700
-Subject: [PATCH 14/21] configd: let configctl -e sleep until an event arrives
+Subject: [PATCH 14/22] configd: let configctl -e sleep until an event arrives
 
 In event mode configctl woke every -t seconds even with nothing to
 send, twice a second for the config_changed listener syslog-ng keeps
