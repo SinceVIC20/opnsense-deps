@@ -1,0 +1,10 @@
+date: 2026-11-07
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It lowers the CPU load of traffic the CPU handles itself, lets more of that traffic through before the hardware limit drops it, and fixes several dashboard widget problems.
+
+- system: the offload manager (cmm) was told about a connection again on almost every packet instead of once, so busy traffic through the CPU kept it working hard. With eight downloads to the router at once it used 15 to 18 percent CPU; it now stays near zero. Offloaded traffic is not affected.
+- system: the hardware limit on traffic sent to the CPU, which protects the router against floods, is raised from 195,312 to 300,000 packets per second. At full speed to the router, dropped packets went from about 28 percent to 4 percent and pings to the router stopped getting lost, while floods are still held well within what the CPU can handle. To use another value, set cmm_exptrate_pps (and optionally cmm_exptrate_burst) in /etc/rc.conf.d/cmm.
+- system: TCP connections to the router over link-local IPv6 addresses (fe80::) now have their packets combined like other connections to the router.
+- dashboard: the CPU graph's tooltip now shows each core's real value, from the sample nearest the mouse. It always showed 100 before.
+- dashboard: the Traffic Graph no longer pops out of its column when the browser window is resized and can be made narrow again. Its minimum width is now 3 columns, the reference line sits at a fifth of the graph's width with the in and out rates above it, the title moves aside when needed and the interface list takes at most about two thirds of the graph's width.
+- dashboard: widgets keep their place and size when the browser window is made narrower and wider again. Coming back from the narrow layouts could leave widgets with broken widths.
+- cmmctl: cmmctl ff ipsec-frag now says it is not supported on this hardware, instead of reporting a change that never happened.
