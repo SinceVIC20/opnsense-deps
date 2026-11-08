@@ -111,26 +111,37 @@ ring_get(struct pfn_ring *r, struct pfn_event *ev)
 
 static uint64_t *pfn_notified;		/* dynamically allocated */
 
+/*
+ * PF stores state ids big-endian, so the counter's changing low bits sit
+ * at the top: slot by the id in host order, or every state shares slot 0.
+ */
+static inline u_int
+pfn_slot(uint64_t id)
+{
+
+	return (be64toh(id) & PFN_NOTIFIED_MASK);
+}
+
 static inline int
 pfn_is_notified(uint64_t id)
 {
 
-	return (pfn_notified[id & PFN_NOTIFIED_MASK] == id);
+	return (pfn_notified[pfn_slot(id)] == id);
 }
 
 static inline void
 pfn_mark_notified(uint64_t id)
 {
 
-	pfn_notified[id & PFN_NOTIFIED_MASK] = id;
+	pfn_notified[pfn_slot(id)] = id;
 }
 
 static inline void
 pfn_clear_notified(uint64_t id)
 {
 
-	if (pfn_notified[id & PFN_NOTIFIED_MASK] == id)
-		pfn_notified[id & PFN_NOTIFIED_MASK] = 0;
+	if (pfn_notified[pfn_slot(id)] == id)
+		pfn_notified[pfn_slot(id)] = 0;
 }
 
 /* --- Global state ------------------------------------------------- */
