@@ -1,10 +1,8 @@
 /*
  * cmmctl_ff.c — Fast-forward control CLI sub-commands
  *
- * cmmctl ff enable              Enable fast-forward offload
- * cmmctl ff disable             Disable fast-forward offload
- * cmmctl ff ipsec-frag enable   Enable IPsec pre-fragmentation
- * cmmctl ff ipsec-frag disable  Disable IPsec pre-fragmentation
+ * cmmctl ff enable|disable              not supported on this hardware
+ * cmmctl ff ipsec-frag enable|disable   not supported on this hardware
  *
  * Copyright 2026 Mono Technologies Inc.
  * Copyright (C) 2007 Mindspeed Technologies, Inc.
@@ -27,8 +25,8 @@ ff_usage(void)
 	    "Commands:\n"
 	    "  enable                Not supported on this hardware\n"
 	    "  disable               Not supported on this hardware\n"
-	    "  ipsec-frag enable     Enable IPsec pre-fragmentation\n"
-	    "  ipsec-frag disable    Disable IPsec pre-fragmentation\n");
+	    "  ipsec-frag enable     Not supported on this hardware\n"
+	    "  ipsec-frag disable    Not supported on this hardware\n");
 }
 
 /* CDX keeps the fast-forward switch but nothing reads it, so say so. */
@@ -40,28 +38,13 @@ ff_control(int fd __unused, int enable)
 	return (1);
 }
 
+/* CDX takes the IPsec pre-fragmentation setting but never applies it. */
 static int
-ff_ipsec_frag(int fd, int enable)
+ff_ipsec_frag(int fd __unused, int enable)
 {
-	fpp_ipsec_cmd_t cmd;
-	int16_t rc;
-
-	memset(&cmd, 0, sizeof(cmd));
-	cmd.pre_frag_en = enable ? 1 : 0;
-
-	if (ctrl_command(fd, FPP_CMD_IPSEC_FRAG_CFG, &cmd, sizeof(cmd),
-	    &rc, NULL, NULL) < 0)
-		return (1);
-
-	if (rc != 0) {
-		fprintf(stderr, "ipsec-frag %s: error %d\n",
-		    enable ? "enable" : "disable", rc);
-		return (1);
-	}
-
-	printf("IPsec pre-fragmentation %s\n",
-	    enable ? "enabled" : "disabled");
-	return (0);
+	fprintf(stderr, "ff ipsec-frag %s: not supported on this hardware, "
+	    "nothing changed\n", enable ? "enable" : "disable");
+	return (1);
 }
 
 int

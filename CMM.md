@@ -58,13 +58,13 @@ Features for enable/disable: `queue`, `interface`, `pppoe`, `bridge`, `ipsec`, `
 
 ## ff — Fast-Forward Control
 
-Enable or disable CDX hardware flow offload globally.
+Kept for compatibility only: CDX accepts these switches but never applies
+them, so every command reports "not supported on this hardware" and changes
+nothing.
 
 ```sh
 cmmctl ff enable
 cmmctl ff disable
-
-# IPsec pre-fragmentation (fragment before encryption)
 cmmctl ff ipsec-frag enable
 cmmctl ff ipsec-frag disable
 ```
