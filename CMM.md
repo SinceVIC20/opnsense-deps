@@ -117,8 +117,10 @@ cmmctl qm dscp-fqmap dtsec3 dscp 0 reset
 ### Rate Limiting
 
 ```sh
-# Exception path rate limit (packets/sec + burst)
-cmmctl qm exptrate eth 195312 64
+# Exception path rate limit (packets/sec + burst), shared by all ports.
+# Default 300000 64 (dpa_app). Lost at reboot; to keep another value set
+# cmm_exptrate_pps / cmm_exptrate_burst in /etc/rc.conf.d/cmm.
+cmmctl qm exptrate eth 300000 64
 
 # Fast-forward rate (CIR/PIR in kbps)
 cmmctl qm ffrate dtsec3 cir 1000000 pir 1000000

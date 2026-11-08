@@ -144,7 +144,9 @@ static struct model_dist_params dist_name[] = {
 		(sizeof(dist_name) / sizeof(struct model_dist_params))
 
 //rate limiter policier defaults
-#define CDX_EXPT_ETH_DEFA_LIMIT         195312  //100 mbps
+/* Frames per second to the CPU (all ports). 300k was tested 2026-11-07: far fewer
+ * drops than NXP's 195312, and the CPU still keeps up under floods. */
+#define CDX_EXPT_ETH_DEFA_LIMIT         300000
 #define CDX_EXPT_WIFI_DEFA_LIMIT        DISABLE_EXPT_PROFILE
 #define CDX_EXPT_ARPND_DEFA_LIMIT       DISABLE_EXPT_PROFILE
 #define CDX_EXPT_PCAP_DEFA_LIMIT        DISABLE_EXPT_PROFILE
