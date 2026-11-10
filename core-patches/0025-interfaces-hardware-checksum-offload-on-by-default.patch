@@ -1,0 +1,25 @@
+From 3bbe2476127b8c57244ebbd4452d3e65ff23bf14 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Mon, 9 Nov 2026 19:46:14 -0700
+Subject: [PATCH 25/25] interfaces: hardware checksum offload on by default
+
+---
+ src/opnsense/mvc/app/models/OPNsense/Interfaces/Settings.xml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/opnsense/mvc/app/models/OPNsense/Interfaces/Settings.xml b/src/opnsense/mvc/app/models/OPNsense/Interfaces/Settings.xml
+index e17a15ef1d..d408a901de 100644
+--- a/src/opnsense/mvc/app/models/OPNsense/Interfaces/Settings.xml
++++ b/src/opnsense/mvc/app/models/OPNsense/Interfaces/Settings.xml
+@@ -5,7 +5,7 @@
+     <description>Global interface settings</description>
+     <items>
+         <disablechecksumoffloading type="BooleanField">
+-            <Default>1</Default>
++            <Default>0</Default>
+             <Required>Y</Required>
+         </disablechecksumoffloading>
+         <disablesegmentationoffloading type="BooleanField">
+-- 
+2.50.1 (Apple Git-155)
+

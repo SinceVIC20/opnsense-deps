@@ -1,7 +1,7 @@
 From 3a60dd103be92e861bb673935ce020d5e7259e2a Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Mon, 2 Nov 2026 07:28:39 -0700
-Subject: [PATCH 18/24] dashboard: fit the traffic graph's linear scale closer
+Subject: [PATCH 18/25] dashboard: fit the traffic graph's linear scale closer
  and glide it to new tops
 
 The linear scale's tops were about 2.7 times apart and came down one

@@ -1,7 +1,7 @@
 From cbdaa87366fc66569fa28a61a9f2f47858e4bc04 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Mon, 2 Nov 2026 08:24:34 -0700
-Subject: [PATCH 19/24] interfaces: handle a new address again once an
+Subject: [PATCH 19/25] interfaces: handle a new address again once an
  assignment change is saved
 
 Applying an assignment change starts DHCP and the like on the new
