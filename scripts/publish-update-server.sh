@@ -23,7 +23,9 @@ DEVICE=GATEWAY
 PUB=${KEYDIR}/repo.pub
 KEY=${KEYDIR}/repo.key
 SIGNCMD="/usr/tools/scripts/pkg_sign.sh ${PUB} ${KEY}"
-XPREFIX=aarch64-unknown-freebsd15.0
+# aarch64-binutils names its tools after the FreeBSD version it was built for.
+XPREFIX=$(ls /usr/local/bin/aarch64-unknown-freebsd*-nm | sed "s|.*/||; s|-nm$||" | tail -1)
+[ -n "${XPREFIX}" ] || { echo "ERROR: aarch64-binutils not installed (pkg install aarch64-binutils)"; exit 1; }
 
 [ -f "${KEY}" ] || { echo "ERROR: no signing key in ${KEYDIR}"; exit 1; }
 [ -f "${MONOPKG}" ] || { echo "ERROR: expected one mono-gateway package, got: ${MONOPKG}"; exit 1; }

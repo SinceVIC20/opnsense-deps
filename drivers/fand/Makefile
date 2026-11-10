@@ -12,7 +12,7 @@ CC?=		cc
 TARGET?=	--target=aarch64-unknown-freebsd15.1
 
 CFLAGS=		-O2 -pipe -Wall --sysroot=${SYSROOT} ${TARGET}
-LDFLAGS=	${TARGET} --sysroot=${SYSROOT}
+LDFLAGS=	${TARGET} --sysroot=${SYSROOT} -fuse-ld=lld
 
 SRCDIR=		${MAKEFILE:H}
 

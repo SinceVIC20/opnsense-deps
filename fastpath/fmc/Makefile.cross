@@ -38,7 +38,7 @@ CFLAGS+=	-I${TCLAP_INC}/..
 
 CXXFLAGS=	${CFLAGS}
 
-LDFLAGS=	${TARGET} --sysroot=${SYSROOT}
+LDFLAGS=	${TARGET} --sysroot=${SYSROOT} -fuse-ld=lld
 LDFLAGS+=	-L${FMLIB_LIB} -L${SYSROOT}/usr/local/lib -L/usr/local/lib
 LIBS=		-lfmc -lfm -lxml2 -lz -lm -lpthread
 

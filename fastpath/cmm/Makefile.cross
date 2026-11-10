@@ -37,7 +37,7 @@ CFLAGS+=	-I${FCI_DIR} -I${FCI_HDR} -I${SRCDIR}/include -I${CMM_DIR} \
 CFLAGS+=	-DLS1043
 CFLAGS+=	-DWIFI_ENABLE
 
-LDFLAGS=	${TARGET} --sysroot=${SYSROOT}
+LDFLAGS=	${TARGET} --sysroot=${SYSROOT} -fuse-ld=lld
 LIBS=		-lnetgraph -lutil
 
 all: ${PROG}

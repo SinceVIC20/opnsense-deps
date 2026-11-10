@@ -53,7 +53,10 @@ DISTDIR?=	${OPSDIR}/dist
 # libxml2 aarch64 package for cross-compilation sysroot (fmc links against it).
 # pkg.FreeBSD.org blocks directory listings, so we fetch by exact filename.
 # Update this when the FreeBSD ports tree bumps libxml2.
-LIBXML2_PKG?=	libxml2-2.15.2.pkg
+# Old versions vanish from that server; LIBXML2_PKGFILE= takes a local .pkg instead.
+LIBXML2_PKG?=	libxml2-2.15.4.pkg
+LIBXML2_PKGFILE?=
+BASESET?=
 LIBXML2_URL=	https://pkg.FreeBSD.org/FreeBSD:14:aarch64/latest/All/${LIBXML2_PKG}
 
 # Package version: derived from git tags (e.g., tag "26.1.2" + 3 commits = "26.1.2_3")
@@ -132,16 +135,24 @@ build-tmp431:
 
 fetch-vendor:
 	@mkdir -p ${VENDORDIR}
-	@if [ ! -d ${VENDORDIR}/mwifiex/.git ]; then \
-		echo "==> Cloning nxp-imx/mwifiex"; \
-		git clone --depth 1 ${MWIFIEX_REPO} ${VENDORDIR}/mwifiex; \
-		cd ${VENDORDIR}/mwifiex && git fetch --depth 1 origin ${MWIFIEX_COMMIT} && git checkout ${MWIFIEX_COMMIT}; \
-	fi
-	@if [ ! -d ${VENDORDIR}/imx-firmware/.git ]; then \
-		echo "==> Cloning nxp-imx/imx-firmware"; \
-		git clone --depth 1 ${IMX_FW_REPO} ${VENDORDIR}/imx-firmware; \
-		cd ${VENDORDIR}/imx-firmware && git fetch --depth 1 origin ${IMX_FW_COMMIT} && git checkout ${IMX_FW_COMMIT}; \
-	fi
+	@# Check the pinned commit every time; a failed fetch must stop the build.
+	@for v in "mwifiex ${MWIFIEX_REPO} ${MWIFIEX_COMMIT}" \
+	    "imx-firmware ${IMX_FW_REPO} ${IMX_FW_COMMIT}"; do \
+		set -- $$v; d=${VENDORDIR}/$$1; \
+		if [ ! -d $$d/.git ]; then \
+			echo "==> Cloning $$2"; \
+			git clone -q --depth 1 $$2 $$d || exit 1; \
+		fi; \
+		if [ "$$(git -C $$d rev-parse HEAD)" != "$$3" ]; then \
+			git -C $$d fetch -q --depth 1 origin $$3 || \
+			    git -C $$d fetch -q --depth 1 origin $$3 || exit 1; \
+			git -C $$d -c advice.detachedHead=false checkout -q $$3 || exit 1; \
+		fi; \
+		if [ "$$(git -C $$d rev-parse HEAD)" != "$$3" ]; then \
+			echo "ERROR: $$1 is not at pinned commit $$3"; exit 1; \
+		fi; \
+		echo "    $$1 at $$3"; \
+	done
 
 build-mwifiex: fetch-vendor
 	${MAKE} -C ${KMOD_MWIFI} ${KMOD_ARGS} VENDORDIR=${VENDORDIR}
@@ -375,35 +386,7 @@ image:
 	${MAKE} -C ${TOOLSDIR} kernel \
 		DEVICE=GATEWAY SETTINGS=${OPS_SETTINGS} \
 		TOOLSDIR=${TOOLSDIR} SRCDIR=${SRCDIR}
-	@echo "==> Step 2a: Populating sysroot from base set"
-	@_base=$$(ls ${SETSDIR}/base-*-aarch64-GATEWAY.txz 2>/dev/null | head -1); \
-	if [ -z "$$_base" ]; then \
-		echo "ERROR: no base set found in ${SETSDIR}"; exit 1; \
-	fi; \
-	echo "    extracting headers and libraries from $$(basename $$_base)"; \
-	tar xf "$$_base" -C ${SYSROOT} --no-fflags \
-		--include='./usr/include/*' \
-		--include='./usr/lib/*.a' \
-		--include='./usr/lib/*.so' \
-		--include='./usr/lib/*.o' \
-		--include='./lib/*.so*'
-	@echo "==> Step 2b: Installing libxml2 into sysroot"
-	@if [ ! -f ${SYSROOT}/usr/local/lib/libxml2.so ]; then \
-		rm -f /tmp/libxml2.pkg; \
-		fetch -qo /tmp/libxml2.pkg '${LIBXML2_URL}'; \
-		rm -rf /tmp/libxml2-extract; \
-		mkdir -p /tmp/libxml2-extract; \
-		tar xf /tmp/libxml2.pkg -C /tmp/libxml2-extract; \
-		mkdir -p ${SYSROOT}/usr/local/include ${SYSROOT}/usr/local/lib; \
-		cp -r /tmp/libxml2-extract/usr/local/include/libxml2 \
-			${SYSROOT}/usr/local/include/; \
-		cp -a /tmp/libxml2-extract/usr/local/lib/libxml2* \
-			${SYSROOT}/usr/local/lib/; \
-		rm -rf /tmp/libxml2-extract /tmp/libxml2.pkg; \
-		echo "    libxml2 installed into sysroot"; \
-	else \
-		echo "    libxml2 already in sysroot"; \
-	fi
+	${MAKE} -C ${OPSDIR} sysroot
 	@echo "==> Step 3: Building modules, userspace, and package"
 	${MAKE} -C ${OPSDIR} -j${_NCPU} package
 	@echo "==> Step 5: Assembling UFS image"
@@ -417,6 +400,43 @@ image:
 	cp ${IMAGESDIR}/OPNsense-*-GATEWAY.img.bz2* ${DISTDIR}/
 	@echo "==> Image ready:"
 	@ls -lh ${DISTDIR}/OPNsense-*-GATEWAY.img.bz2
+
+# Headers and libraries for the userspace build. Run after the kernel build, before make all.
+sysroot:
+	@echo "==> Step 2a: Populating sysroot from base set"
+	@_base="${BASESET}"; \
+	[ -n "$$_base" ] || _base=$$(ls ${SETSDIR}/base-*-aarch64-GATEWAY.txz 2>/dev/null | head -1); \
+	if [ ! -f "$$_base" ]; then \
+		echo "ERROR: no base set found (set BASESET= or check ${SETSDIR})"; exit 1; \
+	fi; \
+	echo "    extracting headers and libraries from $$(basename $$_base)"; \
+	tar xf "$$_base" -C ${SYSROOT} --no-fflags \
+		--include='./usr/include/*' \
+		--include='./usr/lib/*.a' \
+		--include='./usr/lib/*.so' \
+		--include='./usr/lib/*.o' \
+		--include='./lib/*.so*'
+	@echo "==> Step 2b: Installing libxml2 into sysroot"
+	@if [ -n "${LIBXML2_PKGFILE}" -o ! -f ${SYSROOT}/usr/local/lib/libxml2.so ]; then \
+		rm -f /tmp/libxml2.pkg; \
+		if [ -n "${LIBXML2_PKGFILE}" ]; then \
+			cp '${LIBXML2_PKGFILE}' /tmp/libxml2.pkg; \
+		else \
+			fetch -qo /tmp/libxml2.pkg '${LIBXML2_URL}'; \
+		fi; \
+		rm -rf /tmp/libxml2-extract; \
+		mkdir -p /tmp/libxml2-extract; \
+		tar xf /tmp/libxml2.pkg -C /tmp/libxml2-extract; \
+		mkdir -p ${SYSROOT}/usr/local/include ${SYSROOT}/usr/local/lib; \
+		cp -r /tmp/libxml2-extract/usr/local/include/libxml2 \
+			${SYSROOT}/usr/local/include/; \
+		cp -a /tmp/libxml2-extract/usr/local/lib/libxml2* \
+			${SYSROOT}/usr/local/lib/; \
+		rm -rf /tmp/libxml2-extract /tmp/libxml2.pkg; \
+		echo "    libxml2 installed into sysroot"; \
+	else \
+		echo "    libxml2 already in sysroot"; \
+	fi
 
 # Zero the image's free space and compress it to .img.bz2 (run as root).
 compress-image:
@@ -447,7 +467,7 @@ clean:
 .ORDER: clean modules
 .ORDER: clean userspace
 
-.PHONY: all modules userspace package image compress-image clean fetch-vendor \
+.PHONY: all modules userspace package image compress-image clean fetch-vendor sysroot \
 	build-cdx build-fci build-auto_bridge build-pf_notify \
 	build-emc2302 build-ina2xx build-lp5812 build-sfpled build-pcf2131 \
 	build-caam build-tmp431 build-mwifiex build-dpaa_wifi \
