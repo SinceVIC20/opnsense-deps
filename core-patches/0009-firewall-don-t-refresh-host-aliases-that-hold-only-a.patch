@@ -1,7 +1,7 @@
-From 4e1a9d07117e20a16ef20df1ee522c7f806c6093 Mon Sep 17 00:00:00 2001
+From ece5238c669c4d5a5d9b851c8f249c4523601446 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 14:16:48 -0700
-Subject: [PATCH 13/25] firewall: don't refresh host aliases that hold only
+Subject: [PATCH 09/12] firewall: don't refresh host aliases that hold only
  addresses
 
 A host alias of addresses, ranges and networks has nothing to look up,
@@ -13,7 +13,7 @@ apart; a nested alias counts as its own.
  1 file changed, 30 insertions(+), 1 deletion(-)
 
 diff --git a/src/etc/inc/plugins.inc.d/pf.inc b/src/etc/inc/plugins.inc.d/pf.inc
-index 876df4e48a..8a417c2309 100644
+index fbd03f36cc..6a4d12ded8 100644
 --- a/src/etc/inc/plugins.inc.d/pf.inc
 +++ b/src/etc/inc/plugins.inc.d/pf.inc
 @@ -117,7 +117,33 @@ function pf_cron()

@@ -1,7 +1,7 @@
-From a5e8dca6291223d5056d18e01138b5022531bc3d Mon Sep 17 00:00:00 2001
+From 36c1a84dadc33fff6c08e141f4ca32630c5ecb08 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Thu, 12 Nov 2026 12:51:35 -0700
-Subject: [PATCH 25/25] interfaces: use pending assignment changes when a new
+Subject: [PATCH 12/12] interfaces: use pending assignment changes when a new
  address arrives during apply
 
 Backport of upstream f329b00503, df1ef26b5c, 46d877d03a, 6fe1a0d9e7 and
@@ -11,14 +11,13 @@ Backport of upstream f329b00503, df1ef26b5c, 46d877d03a, 6fe1a0d9e7 and
  src/etc/rc.newwanip                           |  3 ++
  src/etc/rc.newwanipv6                         |  3 ++
  .../Interfaces/Api/AssignmentController.php   |  4 +++
- .../OPNsense/Interfaces/NetworkInterface.php  | 28 +++++++++++++++----
- 5 files changed, 60 insertions(+), 6 deletions(-)
+ 4 files changed, 38 insertions(+)
 
 diff --git a/src/etc/inc/interfaces.inc b/src/etc/inc/interfaces.inc
-index 32d2050bf1..e60244cca4 100644
+index fd5be9e381..572667dd3f 100644
 --- a/src/etc/inc/interfaces.inc
 +++ b/src/etc/inc/interfaces.inc
-@@ -4147,3 +4147,31 @@ function interfaces_primary_address6($interface, $ifconfig_details = null)
+@@ -4157,3 +4157,31 @@ function interfaces_primary_address6($interface, $ifconfig_details = null)
  
      return _interfaces_primary_address6($interface, $ifconfig_details, false, false);
  }
@@ -100,65 +99,6 @@ index 61193fc27a..cade7d1dc4 100644
              $backend = new Backend();
              /***
               * Interface apply and final configuration update are separated steps to avoid
-diff --git a/src/opnsense/mvc/app/models/OPNsense/Interfaces/NetworkInterface.php b/src/opnsense/mvc/app/models/OPNsense/Interfaces/NetworkInterface.php
-index 54614864f4..e07d25171a 100644
---- a/src/opnsense/mvc/app/models/OPNsense/Interfaces/NetworkInterface.php
-+++ b/src/opnsense/mvc/app/models/OPNsense/Interfaces/NetworkInterface.php
-@@ -38,14 +38,30 @@ use OPNsense\Routing\Gateways;
- 
- class NetworkInterface extends BaseModel
- {
--    var $todo_file = '/tmp/.interfaces.todo';
-+    private static $todo_filename = '/tmp/.interfaces.todo';
-+
-+    /**
-+     * @param string $filename change target filename to ease testability
-+     */
-+    public static function setTodoFilename($filename)
-+    {
-+        self::$todo_filename = $filename;
-+    }
-+
-+    /**
-+     * @return filename used for pending interface changes
-+     */
-+    public static function getTodoFilename()
-+    {
-+        return self::$todo_filename;
-+    }
- 
-     /**
-      * @param array $payload data to store
-      */
-     private function store_if_todo($id, $payload)
-     {
--        $fobj = new FileObject($this->todo_file, 'a+', 0600, LOCK_EX);
-+        $fobj = new FileObject(self::$todo_filename, 'a+', 0600, LOCK_EX);
-         $data = $fobj->readJson() ?? [];
-         $data[$id] = array_merge($data[$id] ?? [], $payload);
-         $fobj->truncate(0)->writeJson($data);
-@@ -70,8 +86,8 @@ class NetworkInterface extends BaseModel
-      */
-     public function get_if_todo()
-     {
--        if (is_file($this->todo_file)) {
--            return (new FileObject($this->todo_file, 'r'))->readJson() ?? [];
-+        if (is_file(self::$todo_filename)) {
-+            return (new FileObject(self::$todo_filename, 'r'))->readJson() ?? [];
-         } else {
-             return [];
-         }
-@@ -82,8 +98,8 @@ class NetworkInterface extends BaseModel
-      */
-     public function flush_todo()
-     {
--        if (is_file($this->todo_file)) {
--            unlink($this->todo_file);
-+        if (is_file(self::$todo_filename)) {
-+            unlink(self::$todo_filename);
-         }
-     }
- 
 -- 
 2.50.1 (Apple Git-155)
 

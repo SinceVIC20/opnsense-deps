@@ -1,33 +1,35 @@
-From a7967d3f2912830cd382c4ef569d470eeec52094 Mon Sep 17 00:00:00 2001
+From b11ecf3423bb797a3da310df8a995a906f0f510f Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 27 Oct 2026 10:12:43 -0700
-Subject: [PATCH 04/25] configd: read sysctl values inline
+Subject: [PATCH 04/12] configd: read sysctl values inline
 
 Reading sysctl values started a Python script, which then started
 sysctl(8), on every System Information, Memory and CPU widget refresh.
 Run sysctl(8) directly from configd instead, with the same output.
 ---
- .../service/conf/actions.d/actions_system.conf    |  6 +++---
+ .../service/conf/actions.d/actions_system.conf    |  8 ++++----
  src/opnsense/service/modules/actions/inline.py    | 15 +++++++++++++++
- 2 files changed, 18 insertions(+), 3 deletions(-)
+ 2 files changed, 19 insertions(+), 4 deletions(-)
 
 diff --git a/src/opnsense/service/conf/actions.d/actions_system.conf b/src/opnsense/service/conf/actions.d/actions_system.conf
-index 31317e1a1b..f0376d66f0 100644
+index d90ee8c4ff..3f7646f654 100644
 --- a/src/opnsense/service/conf/actions.d/actions_system.conf
 +++ b/src/opnsense/service/conf/actions.d/actions_system.conf
-@@ -46,9 +46,9 @@ type:script_output
- message:Gather available sysctl information
+@@ -47,10 +47,10 @@ message:Gather available sysctl information
+ ttl:-1
  
  [sysctl.values]
 -command:/usr/local/opnsense/scripts/system/sysctl.py
 -parameters:--values %s
 -type:script_output
+-message:Get sysctl values
 +command:sysctl.values
 +parameters:%s
 +type:inline
- message:Get sysctl value(s)
++message:Get sysctl value(s)
  
  [sysctl.defaults]
+ command:/usr/local/opnsense/scripts/system/sysctl_defaults.php
 diff --git a/src/opnsense/service/modules/actions/inline.py b/src/opnsense/service/modules/actions/inline.py
 index 325a7151c4..17bd27159b 100644
 --- a/src/opnsense/service/modules/actions/inline.py

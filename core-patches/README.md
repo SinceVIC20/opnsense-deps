@@ -15,10 +15,10 @@ build time (`make image`).
 The patches are generated from the core fork's integration branch, which is
 the OPNsense release the routers run plus one commit per change:
 
-    git -C core switch mono/core-patches-26.7.7
+    git -C core switch mono/core-patches-26.7.9
     # commit or rebase changes there, then
     rm core-patches/*.patch
-    git -C core format-patch 26.7.7..mono/core-patches-26.7.7 -o ../deps/core-patches
+    git -C core format-patch 26.7.9..mono/core-patches-26.7.9 -o ../deps/core-patches
 
 When a change leaves the series (upstream took it, or it was replaced),
 move its old patch file to `core-patches/retired/` instead of deleting it.
@@ -27,3 +27,14 @@ is ignored.
 
 For a new OPNsense release, rebase the branch onto its tag and regenerate.
 The patches build on each other, so keep them in order.
+
+## On OPNsense 26.7.9 (branch mono-gateway-new)
+
+26.7.9 replaced the dashboard's widget manager with a new widget system
+(opnsense/core #11015). These dashboard changes from the 26.7.7 series are
+held back until they are made again on it: hidden-tab and heavy-widget
+refresh, Interface Statistics every 30 s, spread-out refreshes, refresh on
+return, widget picture copy, the full-height traffic graph and its follow-ups
+(HW/CPU split, scale, dots, header width, column, minimum width) and the
+narrow/wide layout fix. They stay in mono/core-patches-26.7.7.
+
