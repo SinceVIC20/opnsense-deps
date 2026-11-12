@@ -1,7 +1,7 @@
-From 60def1b975e5c451aa0923c62121a8a0a1f9dc7a Mon Sep 17 00:00:00 2001
+From aad4b3c009ce3e1fe3808e6e1c4be97718ea3db0 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Tue, 3 Nov 2026 10:12:32 -0700
-Subject: [PATCH 21/25] dashboard: keep the traffic graph wide enough for its
+Subject: [PATCH 20/25] dashboard: keep the traffic graph wide enough for its
  header
 
 Made narrow, the graph's in and out rates ran into its title and colour

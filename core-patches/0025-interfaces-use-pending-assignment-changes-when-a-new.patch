@@ -1,0 +1,164 @@
+From a5e8dca6291223d5056d18e01138b5022531bc3d Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Thu, 12 Nov 2026 12:51:35 -0700
+Subject: [PATCH 25/25] interfaces: use pending assignment changes when a new
+ address arrives during apply
+
+Backport of upstream f329b00503, df1ef26b5c, 46d877d03a, 6fe1a0d9e7 and
+5da3713526 (apply script refactor and unit test left out).
+---
+ src/etc/inc/interfaces.inc                    | 28 +++++++++++++++++++
+ src/etc/rc.newwanip                           |  3 ++
+ src/etc/rc.newwanipv6                         |  3 ++
+ .../Interfaces/Api/AssignmentController.php   |  4 +++
+ .../OPNsense/Interfaces/NetworkInterface.php  | 28 +++++++++++++++----
+ 5 files changed, 60 insertions(+), 6 deletions(-)
+
+diff --git a/src/etc/inc/interfaces.inc b/src/etc/inc/interfaces.inc
+index 32d2050bf1..e60244cca4 100644
+--- a/src/etc/inc/interfaces.inc
++++ b/src/etc/inc/interfaces.inc
+@@ -4147,3 +4147,31 @@ function interfaces_primary_address6($interface, $ifconfig_details = null)
+ 
+     return _interfaces_primary_address6($interface, $ifconfig_details, false, false);
+ }
++
++/*
++ * This is specifically for rc.newwanip(v6) to merge configuration
++ * items when the controller is locking (processing) our working file.
++ */
++function interfaces_merge_pending()
++{
++    $filename = '/tmp/.interfaces.todo';
++
++    $fp = @fopen($filename, 're');
++    if ($fp === false) {
++        return;
++    }
++
++    $interfaces = &config_read_array('interfaces');
++
++    if (!flock($fp, LOCK_EX | LOCK_NB)) {
++        foreach (json_decode(fread($fp, filesize($filename)), true) ?? [] as $uuid => $work) {
++            if ($work['pending_action'] == 'delete') {
++                unset($interfaces[$uuid]);
++            } else {
++                $interfaces[$uuid] = $work['pending'];
++            }
++        }
++    }
++
++    fclose($fp);
++}
+diff --git a/src/etc/rc.newwanip b/src/etc/rc.newwanip
+index c4b5568970..8ab696b6b1 100755
+--- a/src/etc/rc.newwanip
++++ b/src/etc/rc.newwanip
+@@ -46,6 +46,9 @@ exit_on_bootup(function ($argument) {
+     file_put_contents('/tmp/newwanip_' . $argument, $argument);
+ }, [$argument]);
+ 
++/* merge pending changes when UI is processing */
++interfaces_merge_pending();
++
+ if (empty($argument)) {
+     $interface = 'wan';
+     $device = get_real_interface($interface);
+diff --git a/src/etc/rc.newwanipv6 b/src/etc/rc.newwanipv6
+index 039d427ff8..6e7214f518 100755
+--- a/src/etc/rc.newwanipv6
++++ b/src/etc/rc.newwanipv6
+@@ -46,6 +46,9 @@ exit_on_bootup(function ($argument) {
+     file_put_contents('/tmp/newwanipv6_' . $argument, $argument);
+ }, [$argument]);
+ 
++/* merge pending changes when UI is processing */
++interfaces_merge_pending();
++
+ if (empty($argument)) {
+     $interface = 'wan';
+     $device = get_real_interface($interface, $family);
+diff --git a/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/AssignmentController.php b/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/AssignmentController.php
+index 61193fc27a..cade7d1dc4 100644
+--- a/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/AssignmentController.php
++++ b/src/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/AssignmentController.php
+@@ -32,6 +32,8 @@ use OPNsense\Base\ApiMutableModelControllerBase;
+ use OPNsense\Base\UserException;
+ use OPNsense\Core\Backend;
+ use OPNsense\Core\Config;
++use OPNsense\Core\FileObject;
++use OPNsense\Interfaces\NetworkInterface;
+ 
+ class AssignmentController extends ApiMutableModelControllerBase
+ {
+@@ -141,6 +143,8 @@ class AssignmentController extends ApiMutableModelControllerBase
+     {
+         if ($this->request->isPost()) {
+             $this->throwReadOnly();
++            /* lock status file while processing */
++            $fobj = new FileObject(NetworkInterface::getTodoFilename(), 'a+', 0660, LOCK_EX, 'wwwonly:wheel');
+             $backend = new Backend();
+             /***
+              * Interface apply and final configuration update are separated steps to avoid
+diff --git a/src/opnsense/mvc/app/models/OPNsense/Interfaces/NetworkInterface.php b/src/opnsense/mvc/app/models/OPNsense/Interfaces/NetworkInterface.php
+index 54614864f4..e07d25171a 100644
+--- a/src/opnsense/mvc/app/models/OPNsense/Interfaces/NetworkInterface.php
++++ b/src/opnsense/mvc/app/models/OPNsense/Interfaces/NetworkInterface.php
+@@ -38,14 +38,30 @@ use OPNsense\Routing\Gateways;
+ 
+ class NetworkInterface extends BaseModel
+ {
+-    var $todo_file = '/tmp/.interfaces.todo';
++    private static $todo_filename = '/tmp/.interfaces.todo';
++
++    /**
++     * @param string $filename change target filename to ease testability
++     */
++    public static function setTodoFilename($filename)
++    {
++        self::$todo_filename = $filename;
++    }
++
++    /**
++     * @return filename used for pending interface changes
++     */
++    public static function getTodoFilename()
++    {
++        return self::$todo_filename;
++    }
+ 
+     /**
+      * @param array $payload data to store
+      */
+     private function store_if_todo($id, $payload)
+     {
+-        $fobj = new FileObject($this->todo_file, 'a+', 0600, LOCK_EX);
++        $fobj = new FileObject(self::$todo_filename, 'a+', 0600, LOCK_EX);
+         $data = $fobj->readJson() ?? [];
+         $data[$id] = array_merge($data[$id] ?? [], $payload);
+         $fobj->truncate(0)->writeJson($data);
+@@ -70,8 +86,8 @@ class NetworkInterface extends BaseModel
+      */
+     public function get_if_todo()
+     {
+-        if (is_file($this->todo_file)) {
+-            return (new FileObject($this->todo_file, 'r'))->readJson() ?? [];
++        if (is_file(self::$todo_filename)) {
++            return (new FileObject(self::$todo_filename, 'r'))->readJson() ?? [];
+         } else {
+             return [];
+         }
+@@ -82,8 +98,8 @@ class NetworkInterface extends BaseModel
+      */
+     public function flush_todo()
+     {
+-        if (is_file($this->todo_file)) {
+-            unlink($this->todo_file);
++        if (is_file(self::$todo_filename)) {
++            unlink(self::$todo_filename);
+         }
+     }
+ 
+-- 
+2.50.1 (Apple Git-155)
+

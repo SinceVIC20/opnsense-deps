@@ -292,8 +292,10 @@ package: all
 	install -m 755 ${OPSDIR}/core-patches/mono-core-patches ${PKG_STAGEDIR}/usr/local/sbin/
 	install -m 755 ${OPSDIR}/core-patches/50-mono-core-patches ${PKG_STAGEDIR}/usr/local/etc/rc.syshook.d/update/
 	install -m 644 ${OPSDIR}/core-patches/*.patch ${PKG_STAGEDIR}/usr/local/share/mono-gateway/core-patches/
+	mkdir -p ${PKG_STAGEDIR}/usr/local/share/mono-gateway/core-patches/retired
+	install -m 644 ${OPSDIR}/core-patches/retired/*.patch ${PKG_STAGEDIR}/usr/local/share/mono-gateway/core-patches/retired/
 	cp ${PKG_METADIR}/plist ${BUILDDIR}/plist
-	cd ${OPSDIR}/core-patches && ls *.patch | sed 's|^|/usr/local/share/mono-gateway/core-patches/|' >> ${BUILDDIR}/plist
+	cd ${OPSDIR}/core-patches && ls *.patch retired/*.patch | sed 's|^|/usr/local/share/mono-gateway/core-patches/|' >> ${BUILDDIR}/plist
 	# Generate manifest with version, the commit it was built from and the safety package it pulls in
 	sed -e 's/%%VERSION%%/${PKG_VERSION}/' -e 's/%%COMMIT%%/${PKG_COMMIT}/' \
 	    -e 's/%%SAFETY_DEP_VERSION%%/${PKG_VERSION:S/_/./g}/' ${PKG_METADIR}/+MANIFEST \

@@ -20,5 +20,10 @@ the OPNsense release the routers run plus one commit per change:
     rm core-patches/*.patch
     git -C core format-patch 26.7.7..mono/core-patches-26.7.7 -o ../deps/core-patches
 
+When a change leaves the series (upstream took it, or it was replaced),
+move its old patch file to `core-patches/retired/` instead of deleting it.
+Routers that had it applied get it undone on the next apply; elsewhere it
+is ignored.
+
 For a new OPNsense release, rebase the branch onto its tag and regenerate.
 The patches build on each other, so keep them in order.

@@ -1,7 +1,7 @@
-From f41898f8948fbe4b49448a58750a1b813978d048 Mon Sep 17 00:00:00 2001
+From 3c35f678071a4e7ca179bc8b90c4a88836123194 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Sat, 7 Nov 2026 19:56:37 -0700
-Subject: [PATCH 23/25] dashboard: keep widget sizes when the window switches
+Subject: [PATCH 22/25] dashboard: keep widget sizes when the window switches
  between narrow and wide layouts
 
 ---

@@ -29,10 +29,16 @@ patches()
 	ls ${DIR}/*.patch 2> /dev/null | sort ${1}
 }
 
+# Patches dropped from the series; a router may still have them applied.
+retired()
+{
+	ls ${DIR}/retired/*.patch 2> /dev/null | sort -r
+}
+
 # Files the series touches, relative to ROOT: a/src/opnsense/... is opnsense/...
 files()
 {
-	cat $(patches) | sed -n 's|^+++ b/src/||p' | sort -u
+	cat $(patches) $(retired) | sed -n 's|^+++ b/src/||p' | sort -u
 }
 
 # Files the series creates; core updates leave them in place.
@@ -106,14 +112,24 @@ install_scratch()
 	[ ${CRON} = 1 ] && /usr/local/sbin/pluginctl -s cron restart > /dev/null 2>&1
 }
 
+# Undo dropped patches on the scratch tree, only where they are still applied.
+unretire()
+{
+	for PATCH in $(retired); do
+		patch -s -f -p2 -d ${TMP} -R -C < ${PATCH} > /dev/null 2>&1 &&
+		    patch -s -f -p2 -d ${TMP} -R -E -V none < ${PATCH} > /dev/null 2>&1
+	done
+}
+
 # Turn the scratch tree back into the files OPNsense shipped: undo the
 # longest run of patches that is applied, first to last.
 stock()
 {
+	unretire
 	K=$(patches | wc -l)
 	while [ ${K} -gt 0 ]; do
 		reverse "$(patches | head -n ${K} | sort -r)" && return 0
-		rm -rf ${TMP}; scratch
+		rm -rf ${TMP}; scratch; unretire
 		K=$((K - 1))
 	done
 	# none applied: only files we created can be left over from before
