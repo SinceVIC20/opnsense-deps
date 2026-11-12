@@ -1,0 +1,6 @@
+date: 2026-11-12
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It keeps TCP connections to the router fast also when hardware checksum offload is turned off, turns that offload on by default for new installs, and replaces the fix for moving a WAN to another port with OPNsense's own.
+
+- system: TCP connections to the router now have their packets combined also when "Disable hardware checksum offload" is ticked under Interfaces > Settings, which is still the setting on routers upgraded from earlier versions. The router then checks those packets' checksums itself first. In tests a download to the router ran at the full 1 Gb/s either way, over IPv4 and IPv6. At higher speeds, leaving the box unticked is still expected to be somewhat faster.
+- interfaces: hardware checksum offload is now on by default for new installs. Existing setups keep their setting.
+- interfaces: after changing the device of a DHCP WAN under Interfaces > Assignments, the router could be left without a default route until a reboot. The earlier fix for this is replaced by the OPNsense developers' own fix for the same problem, which also covers IPv6.
