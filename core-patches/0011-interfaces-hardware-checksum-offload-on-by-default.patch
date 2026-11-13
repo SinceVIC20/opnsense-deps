@@ -1,7 +1,7 @@
 From ac4b26a47a9c1db87434c16d260cc73089cb5836 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Mon, 9 Nov 2026 19:46:14 -0700
-Subject: [PATCH 11/12] interfaces: hardware checksum offload on by default
+Subject: [PATCH 11/24] interfaces: hardware checksum offload on by default
 
 ---
  src/opnsense/mvc/app/models/OPNsense/Interfaces/Settings.xml | 2 +-

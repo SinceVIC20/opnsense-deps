@@ -1,0 +1,69 @@
+From 838074129271371eb86baa4b09345d50d19215e6 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Fri, 13 Nov 2026 09:16:07 -0700
+Subject: [PATCH 15/24] dashboard: spread widget refreshes out over time
+
+Widgets loaded together kept refreshing on the same second, so every 30
+seconds the firewall started about ten PHP and Python scripts at once,
+briefly taking a full CPU core and nearly all four once a minute. Start
+each widget's refresh a little later than the one before: the same
+work, with the highest spike falling from 89% to 19% of the CPU.
+
+Made again on the 26.7.9 widget system: the first scheduled refresh
+and the catch-up on return are each started a little later per widget.
+---
+ src/opnsense/www/js/opnsense_widgets.js | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/src/opnsense/www/js/opnsense_widgets.js b/src/opnsense/www/js/opnsense_widgets.js
+index c2d91e16cf..f773f044df 100644
+--- a/src/opnsense/www/js/opnsense_widgets.js
++++ b/src/opnsense/www/js/opnsense_widgets.js
+@@ -411,6 +411,10 @@
+             this.tickRunning = false;
+             this.refreshPending = false;
+             this.refreshMissed = false;
++            // delay of this widget's first scheduled refresh and of its
++            // catch-up on return, set by the manager
++            this.tickOffset = 0;
++            this.returnOffset = 0;
+ 
+             const config = {
+                 ...persistedConfig,
+@@ -559,7 +563,8 @@
+                 // catch up on return only if a refresh fell due while hidden
+                 if (visible && this.refreshMissed) {
+                     this.refreshMissed = false;
+-                    this.refresh();
++                    // spread out like the scheduled refreshes
++                    this.tickTimer = setTimeout(() => this.refresh(), this.returnOffset);
+                 }
+             }
+         }
+@@ -665,10 +670,12 @@
+                     this.refreshPending = false;
+                     global.queueMicrotask(() => this.refresh());
+                 } else if (!this.destroyed) {
++                    const interval = this.widget.tickTimeout * 1000;
+                     this.tickTimer = setTimeout(
+                         () => this._scheduledRefresh(),
+-                        this.widget.tickTimeout * 1000
++                        interval + this.tickOffset % interval
+                     );
++                    this.tickOffset = 0;
+                 }
+             }
+         }
+@@ -1058,6 +1065,9 @@
+                 translations: this.translations,
+                 onResizeRequested: id => this.resizeInstance(id)
+             });
++            // Widgets loaded together would all refresh on the same second, a
++            // burst of scripts on the firewall: start each one a little later.
++            instance.tickOffset = instance.returnOffset = (this.instances.size * 2000) % 30000;
+             this.instances.set(instanceId, instance);
+             return instance;
+         }
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,0 +1,120 @@
+From 576463bb3d2495631560bf9660e3c7b1cfc4b73b Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Tue, 27 Oct 2026 09:56:36 -0700
+Subject: [PATCH 13/24] dashboard: don't refresh widgets in a hidden tab, and
+ slow the heavy ones
+
+Every widget kept refreshing while the dashboard sat in a background or
+minimised tab, each refresh starting PHP and Python scripts on the
+firewall: about 13 seconds of CPU a minute with a typical layout. Skip
+refreshes while the page is hidden and catch up when it is shown again,
+as streaming widgets already do. Refresh Interfaces every 60 seconds and
+Services and Gateways every 30, as their data changes rarely and each
+refresh is costly. Together this cuts a visible dashboard's cost by
+about two thirds and a hidden one's to nothing.
+
+Made again on the 26.7.9 widget system, with the catch-up limited to
+widgets whose refresh fell due while hidden (was a separate change).
+---
+ src/opnsense/www/js/opnsense_widgets.js   | 19 ++++++++++++++++++-
+ src/opnsense/www/js/widgets/Gateways.js   |  1 +
+ src/opnsense/www/js/widgets/Interfaces.js |  1 +
+ src/opnsense/www/js/widgets/Services.js   |  1 +
+ 4 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/src/opnsense/www/js/opnsense_widgets.js b/src/opnsense/www/js/opnsense_widgets.js
+index c0b0d07e59..c2d91e16cf 100644
+--- a/src/opnsense/www/js/opnsense_widgets.js
++++ b/src/opnsense/www/js/opnsense_widgets.js
+@@ -410,6 +410,7 @@
+             this.destroyed = false;
+             this.tickRunning = false;
+             this.refreshPending = false;
++            this.refreshMissed = false;
+ 
+             const config = {
+                 ...persistedConfig,
+@@ -555,6 +556,11 @@
+         onVisibilityChanged(visible) {
+             if (!this.destroyed) {
+                 this.widget.onVisibilityChanged(visible);
++                // catch up on return only if a refresh fell due while hidden
++                if (visible && this.refreshMissed) {
++                    this.refreshMissed = false;
++                    this.refresh();
++                }
+             }
+         }
+ 
+@@ -575,6 +581,7 @@
+ 
+             clearTimeout(this.tickTimer);
+             this.tickTimer = null;
++            this.refreshMissed = false;
+             if (this.tickRunning) {
+                 this.refreshPending = true;
+                 return;
+@@ -659,13 +666,23 @@
+                     global.queueMicrotask(() => this.refresh());
+                 } else if (!this.destroyed) {
+                     this.tickTimer = setTimeout(
+-                        () => this.refresh(),
++                        () => this._scheduledRefresh(),
+                         this.widget.tickTimeout * 1000
+                     );
+                 }
+             }
+         }
+ 
++        _scheduledRefresh() {
++            // a dashboard in a background tab doesn't need fresh data
++            if (document.hidden) {
++                this.tickTimer = null;
++                this.refreshMissed = true;
++                return;
++            }
++            this.refresh();
++        }
++
+         _handleError(error) {
+             if (this.destroyed) {
+                 return;
+diff --git a/src/opnsense/www/js/widgets/Gateways.js b/src/opnsense/www/js/widgets/Gateways.js
+index d2b1cdd7e4..8026589ecb 100644
+--- a/src/opnsense/www/js/widgets/Gateways.js
++++ b/src/opnsense/www/js/widgets/Gateways.js
+@@ -27,6 +27,7 @@
+ export default class Gateways extends BaseTableWidget {
+     constructor(config) {
+         super(config);
++        this.tickTimeout = 30; // dpinger averages over longer than this
+ 
+         this.configurable = true;
+         this.cachedGateways = []; // prevent fetch when loading options
+diff --git a/src/opnsense/www/js/widgets/Interfaces.js b/src/opnsense/www/js/widgets/Interfaces.js
+index de4104399a..211689824a 100644
+--- a/src/opnsense/www/js/widgets/Interfaces.js
++++ b/src/opnsense/www/js/widgets/Interfaces.js
+@@ -27,6 +27,7 @@
+ export default class Interfaces extends BaseTableWidget {
+     constructor() {
+         super();
++        this.tickTimeout = 60; // addresses and link state rarely change
+     }
+ 
+     getGridOptions() {
+diff --git a/src/opnsense/www/js/widgets/Services.js b/src/opnsense/www/js/widgets/Services.js
+index f5c3f1b7d2..727d70567a 100644
+--- a/src/opnsense/www/js/widgets/Services.js
++++ b/src/opnsense/www/js/widgets/Services.js
+@@ -27,6 +27,7 @@
+ export default class Services extends BaseTableWidget {
+     constructor() {
+         super();
++        this.tickTimeout = 30; // every refresh checks each service's processes
+         this.locked = false;
+     }
+ 
+-- 
+2.50.1 (Apple Git-155)
+

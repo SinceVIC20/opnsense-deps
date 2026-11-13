@@ -1,0 +1,122 @@
+From 98ac1de84ce76588877637ac7af1a20b0e5e9540 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Fri, 13 Nov 2026 09:17:16 -0700
+Subject: [PATCH 23/24] dashboard: keep widget sizes when the window switches
+ between narrow and wide layouts
+
+Made again on the 26.7.9 widget system. Without a saved full-width
+layout (dashboards saved before 26.7.9, or saved in a narrow window),
+going back to full width compacted a narrow layout scaled up. Use the
+full width's places as last seen there, else the widget list's own,
+and save them along with a narrow window's layout.
+---
+ src/opnsense/www/js/opnsense_widgets.js | 51 ++++++++++++++++++++++++-
+ 1 file changed, 49 insertions(+), 2 deletions(-)
+
+diff --git a/src/opnsense/www/js/opnsense_widgets.js b/src/opnsense/www/js/opnsense_widgets.js
+index f773f044df..bc2b06db48 100644
+--- a/src/opnsense/www/js/opnsense_widgets.js
++++ b/src/opnsense/www/js/opnsense_widgets.js
+@@ -726,6 +726,8 @@
+             this.instances = new Map();
+             this.options = {};
+             this.layouts = {};
++            // the full-width grid's places, last seen at full width
++            this.fullLayout = null;
+             this.grid = null;
+             this.currentColumnCount = null;
+             this.editMode = false;
+@@ -752,6 +754,7 @@
+                 this._initializeGrid();
+ 
+                 await this._initializeInstances(dashboard.widgets);
++                this._rememberFullLayout();
+ 
+                 document.addEventListener('visibilitychange', this.visibilityHandler);
+                 this.resizeAll();
+@@ -888,6 +891,11 @@
+                 );
+                 const columnCount = this.grid.getColumn();
+                 this.layouts[columnCount] = {};
++                // saved in a narrow window: keep the full width's places too
++                this._rememberFullLayout();
++                if (columnCount !== this._fullColumnCount() && this.fullLayout !== null) {
++                    this.layouts[this._fullColumnCount()] = {...this.fullLayout};
++                }
+ 
+                 const widgets = await Promise.all([...this.instances.values()].map(async instance => {
+                     const {content, callbacks, ...gridConfig} = gridItems.get(instance.id) ?? {};
+@@ -1097,7 +1105,12 @@
+                 this.grid.on(eventName, () => this._markDirty());
+             }
+ 
+-            this.grid.on('change', () => this._syncResponsiveLayout());
++            this.grid.on('change', () => {
++                if (this.grid.getColumn() === this.currentColumnCount) {
++                    this._rememberFullLayout();
++                }
++                this._syncResponsiveLayout();
++            });
+ 
+             this.gridResizeObserver = new ResizeObserver(entries => {
+                 const entry = entries[entries.length - 1];
+@@ -1109,6 +1122,8 @@
+                 this.lastGridWidth = width;
+                 clearTimeout(this.gridResizeTimer);
+                 this.gridResizeTimer = setTimeout(() => {
++                    // before the grid scales the places to a new column count
++                    this._rememberFullLayout();
+                     this.grid.checkDynamicColumn();
+                     this._syncResponsiveLayout();
+                 }, this.grid.opts.cellHeightThrottle ?? 100);
+@@ -1123,7 +1138,10 @@
+         }
+ 
+         _applyLayout(columnCount) {
+-            const layout = this.layouts[columnCount];
++            // without a saved full-width layout, the grid would scale a
++            // narrow one up into widths it can't place
++            const layout = this.layouts[columnCount] ??
++                (columnCount === this._fullColumnCount() ? this._fullLayoutFallback() : null);
+             if (!layout) {
+                 this.grid.compact();
+                 return;
+@@ -1146,6 +1164,35 @@
+             this._applyLayout(columnCount);
+         }
+ 
++        _fullColumnCount() {
++            const breakpoints = this.grid.opts.columnOpts?.breakpoints ?? [];
++            return Math.max(this.grid.opts.column ?? 12, ...breakpoints.map(bp => bp.c));
++        }
++
++        _rememberFullLayout() {
++            if (this.currentColumnCount === this._fullColumnCount() && this.instances.size > 0) {
++                this.fullLayout = Object.fromEntries(
++                    [...this.instances.values()].map(instance => [instance.id, this._readLayout(instance)])
++                );
++            }
++        }
++
++        // the full width's places: as last seen there, else the widget list's own
++        _fullLayoutFallback() {
++            if (this.fullLayout !== null) {
++                return this.fullLayout;
++            }
++            const layout = {};
++            for (const instance of this.instances.values()) {
++                const {x, y, w} = instance.persistedConfig;
++                if (x === undefined || y === undefined) {
++                    return null;
++                }
++                layout[instance.id] = {id: instance.id, x: parseInt(x), y: parseInt(y), w: parseInt(w ?? 1)};
++            }
++            return layout;
++        }
++
+         _readLayout(instance) {
+             const $element = $(instance.element);
+             const node = instance.element.gridstackNode ?? {};
+-- 
+2.50.1 (Apple Git-155)
+

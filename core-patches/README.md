@@ -31,10 +31,11 @@ The patches build on each other, so keep them in order.
 ## On OPNsense 26.7.9 (branch mono-gateway-new)
 
 26.7.9 replaced the dashboard's widget manager with a new widget system
-(opnsense/core #11015). These dashboard changes from the 26.7.7 series are
-held back until they are made again on it: hidden-tab and heavy-widget
-refresh, Interface Statistics every 30 s, spread-out refreshes, refresh on
-return, widget picture copy, the full-height traffic graph and its follow-ups
-(HW/CPU split, scale, dots, header width, column, minimum width) and the
-narrow/wide layout fix. They stay in mono/core-patches-26.7.7.
+(opnsense/core #11015). The dashboard changes of the 26.7.7 series were
+made again on it (0013-0024): the refresh changes and the narrow/wide
+layout fix in its new `opnsense_widgets.js`; the traffic graph, widget
+picture and Interface Statistics changes carried over as they were. The
+two return-to-tab refresh changes are one change here.
 
+Screenshots of the 26.7.7 dashboard (CPU widget and traffic graph,
+2026-10-27 to 11-02) for comparison: port-work/mono-gateway-new/dashboard-reference/.

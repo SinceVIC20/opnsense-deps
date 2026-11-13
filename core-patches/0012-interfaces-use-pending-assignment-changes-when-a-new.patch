@@ -1,7 +1,7 @@
 From 36c1a84dadc33fff6c08e141f4ca32630c5ecb08 Mon Sep 17 00:00:00 2001
 From: SinceVIC20 <codedesk@v3biolab.com>
 Date: Thu, 12 Nov 2026 12:51:35 -0700
-Subject: [PATCH 12/12] interfaces: use pending assignment changes when a new
+Subject: [PATCH 12/24] interfaces: use pending assignment changes when a new
  address arrives during apply
 
 Backport of upstream f329b00503, df1ef26b5c, 46d877d03a, 6fe1a0d9e7 and

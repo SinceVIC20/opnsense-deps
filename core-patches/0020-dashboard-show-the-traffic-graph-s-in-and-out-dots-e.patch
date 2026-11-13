@@ -1,0 +1,31 @@
+From a17ebe2dcb521982ca46b74e9aa8cc2c32e27910 Mon Sep 17 00:00:00 2001
+From: SinceVIC20 <codedesk@v3biolab.com>
+Date: Mon, 2 Nov 2026 11:50:21 -0700
+Subject: [PATCH 20/24] dashboard: show the traffic graph's in and out dots
+ either side of its line
+
+The two dots sat on the line itself, so one hid the other where in and
+out are close. The in dot now sits left of the line and the out dot
+right of it, their centres 0.618 of a dot apart.
+---
+ src/opnsense/www/js/widgets/Traffic.js | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/opnsense/www/js/widgets/Traffic.js b/src/opnsense/www/js/widgets/Traffic.js
+index dffb020b10..3dc8bbee3c 100644
+--- a/src/opnsense/www/js/widgets/Traffic.js
++++ b/src/opnsense/www/js/widgets/Traffic.js
+@@ -207,7 +207,9 @@ export default class Traffic extends BaseWidget {
+                         if (at !== null) {
+                             ctx.fillStyle = dataset.dotColor;
+                             ctx.beginPath();
+-                            ctx.arc(x, at, 4, 0, 2 * Math.PI);
++                            // in to the left of the line and out to the right, their centres 0.618 of a dot
++                            // apart (the golden ratio), so both show
++                            ctx.arc(x + (dataset.src_field === 'inbytes' ? -2.47 : 2.47), at, 4, 0, 2 * Math.PI);
+                             ctx.fill();
+                             const value = Math.max(0, y.getValueForPixel(at));
+                             // under 2 Kb the log scale's floor hides the height: the measured
+-- 
+2.50.1 (Apple Git-155)
+
