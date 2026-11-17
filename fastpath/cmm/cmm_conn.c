@@ -33,6 +33,7 @@
 #include "cmm_route.h"
 #include "cmm_neigh.h"
 #include "cmm_itf.h"
+#include "cmm_vlan.h"
 #include "cmm_lagg.h"
 #include "cmm_fe.h"
 #include "cmm_bridge.h"
@@ -500,13 +501,18 @@ shaper_reload(void)
 /* CDX can't place flows on a LAGG or VLAN it doesn't have registered,
  * e.g. while a LAGG is down or has no member up. */
 static int
-itf_offload_ready(int ifindex)
+itf_offload_ready(struct cmm_global *g, int ifindex)
 {
 	struct cmm_interface *itf;
 
 	itf = cmm_itf_find_by_index(ifindex);
 	if (itf == NULL)
 		return (1);
+	/* No message tells us a VLAN was relinked, so check before use. */
+	cmm_vlan_recheck(g, itf);
+	if ((itf->itf_flags & ITF_F_VLAN_DEV) &&
+	    !(itf->itf_flags & ITF_F_VLAN))
+		return (0);
 	if ((itf->itf_flags & ITF_F_LAGG) &&
 	    !(itf->itf_flags & ITF_F_FPP_LAGG))
 		return (0);
@@ -621,8 +627,8 @@ conn_try_offload(struct cmm_global *g, struct cmm_conn *conn)
 
 	/* Each direction's input is the other's output, so this covers
 	 * both ends of the flow. */
-	if (!itf_offload_ready(conn->orig_route->oif_index) ||
-	    !itf_offload_ready(conn->rep_route->oif_index)) {
+	if (!itf_offload_ready(g, conn->orig_route->oif_index) ||
+	    !itf_offload_ready(g, conn->rep_route->oif_index)) {
 		cmm_print(CMM_LOG_DEBUG,
 		    "conn: interface not registered in CDX, not offloading");
 		return (-1);

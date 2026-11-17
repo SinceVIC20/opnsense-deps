@@ -39,6 +39,8 @@ struct cmm_ifaddr {
 #define ITF_F_FPP_LAGG		(1 << 10)	/* LAGG registered in CDX */
 #define ITF_F_PPPOE		(1 << 11)	/* PPPoE session interface */
 #define ITF_F_FPP_PPPOE	(1 << 12)	/* PPPoE registered in CDX */
+#define ITF_F_VLAN_DEV		(1 << 13)	/* vlan(4) device, tagged or not */
+#define ITF_F_VLAN_QINQ		(1 << 14)	/* 802.1ad VLAN, not offloaded */
 
 struct cmm_route;
 
@@ -53,6 +55,7 @@ struct cmm_interface {
 	uint8_t			link_state;	/* LINK_STATE_UP/DOWN/UNKNOWN */
 	uint32_t		itf_flags;	/* ITF_F_* */
 	uint16_t		vlan_id;
+	uint16_t		vlan_proto;
 	struct list_head	addrs;		/* cmm_ifaddr list */
 	/* Tunnel state (valid when ITF_F_TUNNEL set) */
 	uint8_t			tnl_mode;	/* TNL_6O4, TNL_4O6, ... */

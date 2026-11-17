@@ -13,7 +13,11 @@
  */
 
 #include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <net/if.h>
+#include <net/ethernet.h>
+#include <net/if_vlan_var.h>
 #include <string.h>
 
 #include "cmm.h"
@@ -31,6 +35,9 @@ cmm_vlan_register(struct cmm_global *g, struct cmm_interface *itf)
 	if (!(itf->itf_flags & ITF_F_VLAN))
 		return (0);
 	if (itf->itf_flags & ITF_F_FPP_VLAN)
+		return (0);
+	/* CDX only inserts 802.1Q tags, so 802.1ad VLANs stay with PF. */
+	if (itf->itf_flags & ITF_F_VLAN_QINQ)
 		return (0);
 
 	parent = cmm_itf_find_by_index(itf->parent_ifindex);
@@ -136,6 +143,61 @@ void
 cmm_vlan_fini(struct cmm_global *g)
 {
 	cmm_itf_foreach_vlan(g, cmm_vlan_deregister);
+}
+
+/*
+ * OPNsense tags a new VLAN after creating it and changes a VLAN's tag or
+ * parent in place, and the kernel sends no message for either.  Read the
+ * VLAN again and replace a stale CDX entry, or offloaded packets keep the
+ * old tag or port.
+ */
+int
+cmm_vlan_recheck(struct cmm_global *g, struct cmm_interface *itf)
+{
+	static int sd = -1;
+	struct ifreq ifr;
+	struct vlanreq vlr;
+	int parent_ifindex;
+
+	if (!(itf->itf_flags & ITF_F_VLAN_DEV))
+		return (0);
+	if (sd < 0 && (sd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+		return (0);
+
+	memset(&ifr, 0, sizeof(ifr));
+	memset(&vlr, 0, sizeof(vlr));
+	strlcpy(ifr.ifr_name, itf->ifname, sizeof(ifr.ifr_name));
+	ifr.ifr_data = (caddr_t)&vlr;
+	if (ioctl(sd, SIOCGETVLAN, &ifr) < 0)
+		return (0);
+
+	parent_ifindex = vlr.vlr_tag != 0 ? (int)if_nametoindex(vlr.vlr_parent) : 0;
+	if (vlr.vlr_tag == 0 ? !(itf->itf_flags & ITF_F_VLAN) :
+	    ((itf->itf_flags & ITF_F_VLAN) && itf->vlan_id == vlr.vlr_tag &&
+	    itf->parent_ifindex == parent_ifindex &&
+	    itf->vlan_proto == vlr.vlr_proto))
+		return (0);
+
+	cmm_print(CMM_LOG_INFO,
+	    "vlan: %s changed: vid %u -> %u, parent idx %d -> %d (%s)",
+	    itf->ifname, itf->vlan_id, vlr.vlr_tag, itf->parent_ifindex,
+	    parent_ifindex, vlr.vlr_tag != 0 ? vlr.vlr_parent : "none");
+
+	/* Remove the old entry while the old tag and parent are known. */
+	cmm_vlan_deregister(g, itf);
+
+	itf->itf_flags &= ~(ITF_F_VLAN | ITF_F_VLAN_QINQ);
+	itf->vlan_id = vlr.vlr_tag;
+	itf->vlan_proto = vlr.vlr_proto;
+	itf->parent_ifindex = parent_ifindex;
+	if (vlr.vlr_tag != 0) {
+		itf->itf_flags |= ITF_F_VLAN;
+		if (vlr.vlr_proto == ETHERTYPE_QINQ)
+			itf->itf_flags |= ITF_F_VLAN_QINQ;
+	}
+
+	cmm_vlan_notify(g, itf);
+	return (1);
 }
 
 void

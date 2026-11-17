@@ -254,17 +254,24 @@ itf_detect_vlan(struct cmm_interface *itf, int sd)
 
 	if (ioctl(sd, SIOCGETVLAN, &ifr) < 0)
 		return;		/* Not a VLAN interface */
+	/* OPNsense creates a VLAN untagged and tags it after, so remember
+	 * it is one; cmm_vlan_recheck() picks up the tag later. */
+	itf->itf_flags |= ITF_F_VLAN_DEV;
 	if (vlr.vlr_tag == 0)
 		return;
 
 	itf->vlan_id = vlr.vlr_tag;
+	itf->vlan_proto = vlr.vlr_proto;
 	itf->parent_ifindex = if_nametoindex(vlr.vlr_parent);
 	itf->itf_flags |= ITF_F_VLAN;
+	if (vlr.vlr_proto == ETHERTYPE_QINQ)
+		itf->itf_flags |= ITF_F_VLAN_QINQ;
 
 	cmm_print(CMM_LOG_INFO,
-	    "itf: %s is VLAN %u on %s (parent idx=%d)",
+	    "itf: %s is VLAN %u on %s (parent idx=%d%s)",
 	    itf->ifname, itf->vlan_id, vlr.vlr_parent,
-	    itf->parent_ifindex);
+	    itf->parent_ifindex,
+	    (itf->itf_flags & ITF_F_VLAN_QINQ) ? ", 802.1ad" : "");
 }
 
 /*
@@ -674,6 +681,9 @@ cmm_itf_handle_ifinfo(struct cmm_global *g, void *msg, int msglen)
 		    (unsigned int)ifm->ifm_data.ifi_mtu);
 		itf->mtu = ifm->ifm_data.ifi_mtu;
 	}
+
+	/* A VLAN tagged or relinked since we last read it. */
+	cmm_vlan_recheck(g, itf);
 
 	/* Notify LAGG, VLAN, tunnel, WiFi, PPPoE, multicast, and bridge modules */
 	cmm_lagg_notify(g, itf);

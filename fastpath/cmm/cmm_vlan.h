@@ -24,6 +24,10 @@ void cmm_vlan_fini(struct cmm_global *g);
 /* Called when interface flags change — register/deregister as needed */
 void cmm_vlan_notify(struct cmm_global *g, struct cmm_interface *itf);
 
+/* Read the VLAN's tag and parent from the kernel again; returns 1 if
+ * they changed (the old CDX entry is replaced) */
+int cmm_vlan_recheck(struct cmm_global *g, struct cmm_interface *itf);
+
 /* Deregister / re-register the VLANs on a parent that is going away or
  * coming back (a LAGG being deregistered or re-registered) */
 void cmm_vlan_deregister_children(struct cmm_global *g, int parent_ifindex);
