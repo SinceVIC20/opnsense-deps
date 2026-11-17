@@ -1,0 +1,5 @@
+date: 2026-11-17
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. It fixes hardware offload for VLANs whose tag or port is changed while the router is running.
+
+- offload: after changing a VLAN's tag or parent port under Interfaces > Devices > VLAN, the hardware offload kept using the old tag and port until a reboot. Connections on that VLAN then stalled once data started flowing, while DNS and new connections still got through. The offload now picks up the change.
+- offload: VLANs using 802.1ad (QinQ) are no longer offloaded, because the hardware can only add 802.1Q tags. Their traffic now goes through the CPU, where it is tagged correctly.
