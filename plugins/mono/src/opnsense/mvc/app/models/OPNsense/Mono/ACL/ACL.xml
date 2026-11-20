@@ -12,4 +12,12 @@
             <pattern>api/mono/sfp/*</pattern>
         </patterns>
     </page-mono-sfp>
+    <page-mono-fan>
+        <name>System: Settings: Fan control</name>
+        <patterns>
+            <pattern>ui/mono/fan*</pattern>
+            <pattern>api/mono/fan/*</pattern>
+            <pattern>api/hwmon/sensors/*</pattern>
+        </patterns>
+    </page-mono-fan>
 </acl>

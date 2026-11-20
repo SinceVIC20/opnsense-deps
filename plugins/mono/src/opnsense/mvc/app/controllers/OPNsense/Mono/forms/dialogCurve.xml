@@ -1,0 +1,19 @@
+<form>
+    <field>
+        <id>curve.name</id>
+        <label>Name</label>
+        <type>text</type>
+    </field>
+    <field>
+        <id>curve.sensors</id>
+        <label>Sensors</label>
+        <type>select_multiple</type>
+        <help>Uses the hottest one. Above 90 °C the fan always runs at 100 %.</help>
+    </field>
+    <field>
+        <id>curve.points</id>
+        <label>Points</label>
+        <type>text</type>
+        <help>Speeds between points are filled in. Some fans stop below 15 %.</help>
+    </field>
+</form>

@@ -1,0 +1,14 @@
+<form>
+    <field>
+        <id>fan.fans.fan0</id>
+        <label>fan0</label>
+        <type>dropdown</type>
+        <help>The curve this fan follows.</help>
+    </field>
+    <field>
+        <id>fan.fans.fan1</id>
+        <label>fan1</label>
+        <type>dropdown</type>
+        <help>Not connected if nothing is plugged in.</help>
+    </field>
+</form>
