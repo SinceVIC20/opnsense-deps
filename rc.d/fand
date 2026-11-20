@@ -11,6 +11,7 @@ desc="Fan control daemon"
 rcvar="fand_enable"
 command="/usr/local/sbin/${name}"
 command_args="-d"
+extra_commands="reload"
 
 load_rc_config $name
 run_rc_command "$1"

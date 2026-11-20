@@ -179,7 +179,16 @@ Source: `drivers/sfp-led/`
 Reads temperature sensors and adjusts fan speed via emc2302
 sysctl interface. Runs as a daemon.
 
-Source: `drivers/fand/`
+Each fan follows a curve of temperature:speed points, using the hottest
+of the curve's `hw.temperature` sensors, with straight lines between
+points. Curves and fans come from `/usr/local/etc/fand.conf`, which
+System: Settings: Fan control writes; `service fand reload` (SIGHUP)
+reads it again without a restart. Without the file, every fan follows
+the standard curve (20% at 40°C to 100% at 80°C on the core cluster).
+Above 90°C, or when no sensor of a curve can be read, its fans run
+at 100%.
+
+Source: `drivers/fand/`, page in `plugins/mono/`
 
 ## Data Flow: Packet Through Hardware Offload
 
