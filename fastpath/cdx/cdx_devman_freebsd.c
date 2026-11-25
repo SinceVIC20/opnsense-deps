@@ -898,6 +898,9 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 #endif
 				l2_info->num_egress_vlan_hdrs++;
 			}
+			/* A VLAN that is a bridge member sends from the bridge. */
+			if (src_mac == NULL && cur->vlan_info.is_bridged)
+				src_mac = cur->vlan_info.br_mac_addr;
 			cur = cur->vlan_info.parent;
 		} else if (cur->if_flags & IF_TYPE_LAGG) {
 			/* Send from the LAGG's MAC, which the far end
@@ -930,7 +933,9 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 			struct wlan_iface_info *wlan = &cur->wlan_info;
 
 			memcpy(l2_info->l2hdr, rt_entry->dstmac, 6);
-			memcpy(l2_info->l2hdr + 6, wlan->mac_addr, 6);
+			memcpy(l2_info->l2hdr + 6, src_mac != NULL ? src_mac :
+			    (wlan->is_bridged ? wlan->br_mac_addr :
+			    wlan->mac_addr), 6);
 			l2_info->mtu = cur->mtu;
 			l2_info->is_wlan_iface = 1;
 
@@ -948,10 +953,13 @@ dpa_get_tx_info_by_itf(PRouteEntry rt_entry,
 			struct eth_iface_info *eth = &cur->eth_info;
 
 			/* L2 header: dst MAC from route, src MAC from
-			 * the LAGG if we came through one, else the port */
+			 * the LAGG or bridged VLAN on the path, else
+			 * the bridge the port is a member of, else the
+			 * port */
 			memcpy(l2_info->l2hdr, rt_entry->dstmac, 6);
 			memcpy(l2_info->l2hdr + 6,
 			    src_mac != NULL ? src_mac :
+			    eth->is_bridged ? eth->br_mac_addr :
 			    (uint8_t *)if_getlladdr(eth->ifp), 6);
 
 			l2_info->mtu = cur->mtu;
@@ -1799,11 +1807,45 @@ dpaa_get_vap_fwd_fq(uint16_t vap_id, uint32_t *fqid, uint32_t hash)
 	return (0);
 }
 
+/*
+ * cmm: ifname joined (is_bridged = 1) or left a bridge.  A route that
+ * leaves through a bridge member must send from the bridge's MAC, the
+ * MAC the hosts behind the bridge have as gateway, not the port's own;
+ * dpa_get_tx_l2info_by_itf() reads what is stored here.
+ */
 int
 dpa_set_bridged_itf(uint8_t *ifname, uint8_t is_bridged,
     uint8_t *br_mac_addr)
 {
-	return (0);
+	struct dpa_iface_info *iface;
+	uint8_t *flag = NULL, *mac = NULL;
+
+	spin_lock(&dpa_devlist_lock);
+	iface = devman_find_by_name((const char *)ifname);
+	if (iface == NULL) {
+		spin_unlock(&dpa_devlist_lock);
+		return (-1);
+	}
+	if (iface->if_flags & IF_TYPE_VLAN) {
+		flag = &iface->vlan_info.is_bridged;
+		mac = iface->vlan_info.br_mac_addr;
+	} else if (iface->if_flags & IF_TYPE_WLAN) {
+		flag = &iface->wlan_info.is_bridged;
+		mac = iface->wlan_info.br_mac_addr;
+	} else if (iface->if_flags & IF_TYPE_ETHERNET) {
+		flag = &iface->eth_info.is_bridged;
+		mac = iface->eth_info.br_mac_addr;
+	}
+	if (flag != NULL) {
+		*flag = is_bridged ? 1 : 0;
+		if (is_bridged)
+			memcpy(mac, br_mac_addr, ETH_ALEN);
+		else
+			memset(mac, 0, ETH_ALEN);
+	}
+	spin_unlock(&dpa_devlist_lock);
+	/* A LAGG member of a bridge keeps the LAGG's MAC (no field). */
+	return (flag != NULL ? 0 : -1);
 }
 
 void
