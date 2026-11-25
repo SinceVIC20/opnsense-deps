@@ -350,6 +350,17 @@ abm_l2flow_hook(struct ifnet *bridge_ifp __unused, struct mbuf *m,
 
 	eh = mtod(m, struct ether_header *);
 
+	/*
+	 * IPv4 and IPv6 only.  A short non-IP frame (ARP, PPPoE discovery,
+	 * LLDP) that hits an L2 record freezes the FMan's lookup on the
+	 * 210.10.1 microcode: the host command interface times out and every
+	 * port stops for seconds.  VyOS ASK2 keeps bridging to v4/v6 for the
+	 * same reason.  These frames stay in the software bridge.
+	 */
+	if (eh->ether_type != htons(ETHERTYPE_IP) &&
+	    eh->ether_type != htons(ETHERTYPE_IPV6))
+		return;
+
 	/* Build L2 flow tuple */
 	memset(&flow, 0, sizeof(flow));
 	memcpy(flow.saddr, eh->ether_shost, ETHER_ADDR_LEN);

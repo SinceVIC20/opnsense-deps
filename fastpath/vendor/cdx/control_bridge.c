@@ -310,6 +310,16 @@ static int M_bridge_handle_l2flow(U16 *p, U16 Length)
 		printk("%s::l3 flows not supported now\n", __FUNCTION__);
 		return ERR_WRONG_COMMAND_PARAM;
 	}
+	/*
+	 * Program IPv4 and IPv6 bridge flows only.  A short non-IP frame
+	 * (ARP, PPPoE discovery) hitting an L2 record freezes the FMan
+	 * lookup on the 210.10.1 microcode; whoever asks, refuse.
+	 */
+	if (pcmd->action == ACTION_REGISTER || pcmd->action == ACTION_UPDATE) {
+		if (pcmd->ethertype != htons(ETHERTYPE_IP) &&
+		    pcmd->ethertype != htons(ETHERTYPE_IPV6))
+			return ERR_WRONG_COMMAND_PARAM;
+	}
 	//fill flow params from command
 	memset(&l2flow, 0, sizeof(struct L2Flow));
 	memcpy(&l2flow.da[0], pcmd->destaddr, 6);
