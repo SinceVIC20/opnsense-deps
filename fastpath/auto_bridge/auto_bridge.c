@@ -264,6 +264,13 @@ abm_handle_response(const struct abm_response *resp)
 		return;
 	}
 
+	if (resp->flags & ABM_FLAG_REMOVED) {
+		/* callout_init_mtx: stopped under abm_mtx, cannot run. */
+		abm_remove(e);
+		mtx_unlock(&abm_mtx);
+		return;
+	}
+
 	if (resp->flags & ABM_FLAG_OFFLOADED) {
 		e->state = ABM_STATE_FF;
 		callout_stop(&e->timer);

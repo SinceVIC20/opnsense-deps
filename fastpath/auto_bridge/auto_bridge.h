@@ -36,6 +36,12 @@
 #define ABM_FLAG_OFFLOADED	0x01
 #define ABM_FLAG_DENIED		0x02
 #define ABM_FLAG_ACK		0x04
+/*
+ * The flow left the hardware (timed out there, or the flow's port left the
+ * bridge): forget the flow, so the next frame is a new flow.  A module from
+ * before this flag only clears the wait for the ACK, as before.
+ */
+#define ABM_FLAG_REMOVED	0x08
 
 /*
  * L2 flow identification tuple.
