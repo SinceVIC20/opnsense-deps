@@ -316,8 +316,8 @@ static int M_bridge_handle_l2flow(U16 *p, U16 Length)
 	 * lookup on the 210.10.1 microcode; whoever asks, refuse.
 	 */
 	if (pcmd->action == ACTION_REGISTER || pcmd->action == ACTION_UPDATE) {
-		if (pcmd->ethertype != htons(ETHERTYPE_IP) &&
-		    pcmd->ethertype != htons(ETHERTYPE_IPV6))
+		if (pcmd->ethertype != htons(0x0800) &&	/* IPv4 */
+		    pcmd->ethertype != htons(0x86dd))	/* IPv6 */
 			return ERR_WRONG_COMMAND_PARAM;
 	}
 	//fill flow params from command
