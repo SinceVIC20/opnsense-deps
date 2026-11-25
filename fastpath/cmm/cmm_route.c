@@ -488,6 +488,46 @@ cmm_route_invalidate_by_neigh(struct cmm_global *g, struct cmm_neigh *neigh)
 }
 
 /*
+ * A host behind a bridge moved to another member port.  CDX programmed
+ * routes into the bridge with the port the host had, and routes keyed
+ * on that port as input for the replies.  Tear down the connections on
+ * routes out of a bridge to that MAC: those re-resolve the member port
+ * from the bridge's address table and re-offload through the new port.
+ */
+void
+cmm_route_invalidate_by_mac(struct cmm_global *g, const uint8_t *mac)
+{
+	struct cmm_route *rt;
+	struct cmm_interface *itf;
+	struct list_head *pos;
+	int i, count = 0;
+
+	for (i = 0; i < ROUTE_HASH_TOTAL; i++) {
+		for (pos = list_first(&route_hash[i]);
+		    pos != &route_hash[i]; pos = list_next(pos)) {
+			rt = container_of(pos, struct cmm_route, entry);
+
+			if (rt->neigh == NULL ||
+			    memcmp(rt->neigh->macaddr, mac, ETHER_ADDR_LEN) != 0)
+				continue;
+			itf = cmm_itf_find_by_index(rt->oif_index);
+			if (itf == NULL || !(itf->itf_flags & ITF_F_BRIDGE))
+				continue;
+
+			cmm_route_invalidate_conns(g, rt);
+			cmm_fe_route_deregister(g, rt);
+			rt->fpp_rejected = 0;
+			count++;
+		}
+	}
+
+	if (count > 0)
+		cmm_print(CMM_LOG_INFO, "route: invalidated %d route(s), "
+		    "%02x:%02x:%02x:%02x:%02x:%02x moved to another bridge port",
+		    count, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+/*
  * Resolve the route's neighbor again if it is missing or no longer
  * resolved. Without this a stale neighbor kept every flow to that
  * device on the CPU until a route event or a cmm restart.

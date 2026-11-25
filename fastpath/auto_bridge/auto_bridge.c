@@ -222,6 +222,33 @@ abm_post_reset(void)
 	}
 }
 
+/*
+ * if_bridge: a learned address moved to another member port (a host
+ * moved, or a Wi-Fi client roamed between access points on different
+ * ports).  cmm takes the flows to and from that address out of the hardware and
+ * re-offloads routed connections through the new port.
+ */
+static void
+abm_fdb_move(struct ifnet *bridge_ifp __unused, const uint8_t *mac,
+    struct ifnet *old_if, struct ifnet *new_if)
+{
+	struct abm_event ev;
+
+	memset(&ev, 0, sizeof(ev));
+	ev.type = ABM_EVENT_FDB_MOVE;
+	memcpy(ev.flow.saddr, mac, ETHER_ADDR_LEN);
+	ev.iif_index = if_getindex(old_if);
+	ev.oif_index = if_getindex(new_if);
+
+	mtx_lock(&abm_mtx);
+	if (abm_open && ring_put(&abm_ring, &ev) == 0) {
+		selwakeup(&abm_rsel);
+		KNOTE_LOCKED(&abm_rsel.si_note, 0);
+		wakeup(&abm_ring);
+	}
+	mtx_unlock(&abm_mtx);
+}
+
 /* --- State machine ------------------------------------------------ */
 
 /*
@@ -748,6 +775,7 @@ abm_load(void)
 	/* Register bridge hooks */
 	bridge_l2flow_hook = abm_l2flow_hook;
 	bridge_fdb_can_expire_hook = abm_fdb_can_expire;
+	bridge_fdb_move_hook = abm_fdb_move;
 
 	printf("auto_bridge: loaded (max_entries=%d, l3_filtering=%d)\n",
 	    abm_max_entries, abm_l3_filtering);
@@ -761,6 +789,7 @@ abm_unload(void)
 	/* Unregister hooks first */
 	bridge_l2flow_hook = NULL;
 	bridge_fdb_can_expire_hook = NULL;
+	bridge_fdb_move_hook = NULL;
 
 	/* Flush all entries */
 	mtx_lock(&abm_mtx);

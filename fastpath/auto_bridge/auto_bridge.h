@@ -31,6 +31,12 @@
 #define ABM_EVENT_FLOW_UPDATE	2
 #define ABM_EVENT_FLOW_DEL	3
 #define ABM_EVENT_RESET		4
+/*
+ * A learned address moved to another member port: flow.saddr is the
+ * address, iif_index the old port, oif_index the new one.  Offloaded
+ * flows to or from that address still point at the old port.
+ */
+#define ABM_EVENT_FDB_MOVE	5
 
 /* Response flags (userspace -> kernel via write()) */
 #define ABM_FLAG_OFFLOADED	0x01

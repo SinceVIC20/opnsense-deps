@@ -72,6 +72,7 @@ void cmm_route_invalidate_by_oif(struct cmm_global *g, int oif_index);
 /* Invalidate all routes pointing at a neighbor (its MAC changed) */
 void cmm_route_invalidate_by_neigh(struct cmm_global *g,
     struct cmm_neigh *neigh);
+void cmm_route_invalidate_by_mac(struct cmm_global *g, const uint8_t *mac);
 
 /* Poll for gateway MAC changes and invalidate affected routes */
 void cmm_route_check_neigh_changes(struct cmm_global *g);

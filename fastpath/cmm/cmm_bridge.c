@@ -37,6 +37,7 @@
 #include "cmm.h"
 #include "cmm_bridge.h"
 #include "cmm_itf.h"
+#include "cmm_route.h"
 #include "libfci.h"
 
 /* L2 flow hash table */
@@ -255,6 +256,18 @@ bridge_find_port(struct list_head *list, const char *ifname)
 	return (NULL);
 }
 
+static int
+bridge_port_count(struct cmm_bridge *br)
+{
+	struct list_head *pos;
+	int n = 0;
+
+	for (pos = list_first(&br->ports); pos != &br->ports;
+	    pos = list_next(pos))
+		n++;
+	return (n);
+}
+
 /*
  * Is ifname a member port of a bridge cmm knows about?
  */
@@ -469,6 +482,9 @@ cmm_bridge_itf_update(struct cmm_global *g)
 		struct cmm_bridge *br = container_of(bpos,
 		    struct cmm_bridge, entry);
 		struct cmm_bridge *obr = bridge_find(&old, br->ifindex);
+		int changed = (obr == NULL ||
+		    memcmp(obr->macaddr, br->macaddr, ETHER_ADDR_LEN) != 0 ||
+		    bridge_port_count(obr) != bridge_port_count(br));
 
 		if (obr == NULL)
 			cmm_print(CMM_LOG_INFO, "bridge: detected %s "
@@ -494,7 +510,15 @@ cmm_bridge_itf_update(struct cmm_global *g)
 			    br->ifname, port->ifname,
 			    was == NULL ? "added" : "updated");
 			bridge_port_notify(g, port->ifname, br->macaddr, 1);
+			changed = 1;
 		}
+
+		/*
+		 * Routes out of this bridge were registered with a member
+		 * port and the bridge's MAC as before: register those again.
+		 */
+		if (changed && obr != NULL)
+			cmm_route_invalidate_by_oif(g, br->ifindex);
 	}
 
 	/* Ports that left a bridge, or whose bridge is gone. */
@@ -755,6 +779,45 @@ l2flow_flush_port(struct cmm_global *g, const char *ifname)
 }
 
 /*
+ * A learned address moved to another member port: every L2 flow to or
+ * from that address is programmed for the old port.  Take those out of the
+ * hardware (the next frames offload those flows again, through
+ * the new port), and re-offload routed connections to that address.
+ */
+static void
+handle_fdb_move(struct cmm_global *g, const struct abm_event *ev)
+{
+	const uint8_t *mac = ev->flow.saddr;
+	struct list_head *pos, *tmp;
+	int i, n = 0;
+
+	for (i = 0; i < CMM_L2FLOW_HASH_SIZE; i++) {
+		for (pos = list_first(&l2flow_table[i]);
+		    pos != &l2flow_table[i];) {
+			tmp = list_next(pos);
+			struct cmm_l2flow *entry = container_of(pos,
+			    struct cmm_l2flow, hash_entry);
+			if (memcmp(entry->flow.saddr, mac, ETHER_ADDR_LEN) == 0 ||
+			    memcmp(entry->flow.daddr, mac, ETHER_ADDR_LEN) == 0) {
+				l2flow_fpp_deregister(g, entry);
+				autobridge_respond(&entry->flow,
+				    ABM_FLAG_REMOVED | ABM_FLAG_ACK);
+				l2flow_del(entry);
+				n++;
+			}
+			pos = tmp;
+		}
+	}
+
+	cmm_print(CMM_LOG_INFO, "bridge: %02x:%02x:%02x:%02x:%02x:%02x moved "
+	    "from ifindex %u to %u, %d L2 flow(s) taken out of the hardware",
+	    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+	    ev->iif_index, ev->oif_index, n);
+
+	cmm_route_invalidate_by_mac(g, mac);
+}
+
+/*
  * Handle a FLOW_NEW event from auto_bridge.
  */
 static void
@@ -949,6 +1012,9 @@ cmm_bridge_event(struct cmm_global *g)
 			break;
 		case ABM_EVENT_RESET:
 			handle_reset(g);
+			break;
+		case ABM_EVENT_FDB_MOVE:
+			handle_fdb_move(g, &ev);
 			break;
 		default:
 			cmm_print(CMM_LOG_WARN,
