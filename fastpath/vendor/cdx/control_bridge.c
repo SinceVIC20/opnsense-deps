@@ -423,6 +423,104 @@ func_ret:
 	return ackstatus;
 }
 
+/*
+ * Ports cmm enabled L2 bridging on.  Forwarding does not depend on this
+ * (flows are programmed per input port by FLOW_ENTRY); the list is kept so
+ * QUERY_STATUS answers with what is really set instead of nothing.
+ */
+#define L2BR_MAX_PORTS	32
+static char l2br_ports[L2BR_MAX_PORTS][IF_NAME_SIZE];
+static int l2br_status_pos;
+
+/* Same layout as fpp_l2_bridge_query_status_response_t. */
+typedef struct __attribute__((__packed__)) {
+	U16 ackstatus;
+	U16 status;
+	U8 ifname[IF_NAME_SIZE];
+	U32 eof;
+} L2BridgeQueryStatusResponse;
+
+static int M_bridge_handle_enable(U16 *p, U16 Length)
+{
+	PL2BridgeEnableCommand cmd = (PL2BridgeEnableCommand)p;
+	char name[IF_NAME_SIZE];
+	int i, free_slot = -1;
+
+	if (Length < sizeof(L2BridgeEnableCommand))
+		return ERR_WRONG_COMMAND_SIZE;
+	strlcpy(name, (char *)cmd->input_name, sizeof(name));
+	if (name[0] == '\0')
+		return ERR_UNKNOWN_INTERFACE;
+
+	for (i = 0; i < L2BR_MAX_PORTS; i++) {
+		if (l2br_ports[i][0] == '\0') {
+			if (free_slot < 0)
+				free_slot = i;
+			continue;
+		}
+		if (strcmp(l2br_ports[i], name) == 0) {
+			if (!cmd->enable_flag)
+				l2br_ports[i][0] = '\0';
+			return CMD_OK;
+		}
+	}
+	if (!cmd->enable_flag)
+		return CMD_OK;
+	if (free_slot < 0)
+		return ERR_NOT_ENOUGH_MEMORY;
+	strlcpy(l2br_ports[free_slot], name, IF_NAME_SIZE);
+	return CMD_OK;
+}
+
+/* One port per call; eof set after the last.  An empty set answers eof. */
+static U16 M_bridge_query_status(U16 *p)
+{
+	L2BridgeQueryStatusResponse *rsp = (L2BridgeQueryStatusResponse *)p;
+
+	memset(rsp, 0, sizeof(*rsp));
+	while (l2br_status_pos < L2BR_MAX_PORTS &&
+	    l2br_ports[l2br_status_pos][0] == '\0')
+		l2br_status_pos++;
+	if (l2br_status_pos >= L2BR_MAX_PORTS) {
+		l2br_status_pos = 0;
+		rsp->eof = 1;
+	} else {
+		strlcpy((char *)rsp->ifname, l2br_ports[l2br_status_pos],
+		    IF_NAME_SIZE);
+		rsp->status = 1;
+		l2br_status_pos++;
+	}
+	rsp->ackstatus = CMD_OK;
+	return sizeof(*rsp);
+}
+
+/*
+ * Remove every L2 flow from the hardware.  A flow whose hardware delete
+ * fails stays as a tombstone (see delete_l2br_entry_classif_table()) and
+ * is counted; a later DEREGISTER or reset retries the delete.
+ */
+static int M_bridge_flow_reset(void)
+{
+	struct L2Flow_entry *entry;
+	struct hlist_node *tmp;
+	int i, n = 0, left = 0;
+
+	for (i = 0; i < NUM_BT_ENTRIES; i++) {
+		if (!l2flow_hash_table[i].num_entries)
+			continue;
+		hlist_for_each_entry_safe(entry, tmp,
+		    &l2flow_hash_table[i].flowlist, node) {
+			l2flow_remove(entry);
+			n++;
+		}
+		left += l2flow_hash_table[i].num_entries;
+	}
+	if (n)
+		printk("cdx: bridge: flow reset removed %d L2 flow(s)%s\n",
+		    n - left, left ? " (some kept, hardware delete failed)" : "");
+	return CMD_OK;
+}
+
 static int M_bridge_handle_control(U16 code, U16 *p, U16 Length)
 {
 	U16 ackstatus = CMD_OK;
@@ -490,10 +588,17 @@ U16 M_bridge_cmdproc(U16 cmd_code, U16 cmd_len, U16 *p)
 	switch (cmd_code)
 	{
 		case CMD_RX_L2BRIDGE_ENABLE: 
+			ackstatus = M_bridge_handle_enable(p, cmd_len);
+			break;
+		case CMD_RX_L2BRIDGE_QUERY_STATUS: 
+			acklen = M_bridge_query_status(p);
+			return acklen;
+		case CMD_RX_L2BRIDGE_FLOW_RESET:
+			ackstatus = M_bridge_flow_reset();
+			break;
 		case CMD_RX_L2BRIDGE_ADD: 
 		case CMD_RX_L2BRIDGE_REMOVE: 
-		case CMD_RX_L2BRIDGE_QUERY_STATUS: 
-		case CMD_RX_L2BRIDGE_FLOW_RESET:
+			/* Static entries are not supported (auto mode only). */
 			break;
 		case CMD_RX_L2BRIDGE_QUERY_ENTRY: 
 			{
