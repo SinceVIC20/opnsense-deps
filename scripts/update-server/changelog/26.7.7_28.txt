@@ -1,0 +1,9 @@
+date: 2026-11-25
+This release comes from the temporary, unofficial Mono Gateway update server at mono-opnsense.sincevic20.com, not from OPNsense or Mono. The release fixes bridges made of the router's Ethernet ports and the hardware offload of traffic between bridge ports.
+
+- interfaces: a bridge of two or more of the router's ports under Interfaces > Devices > Bridge passed traffic only on the port whose MAC address the bridge used, and on no port at all when the bridge had a separate MAC address. The ports now pass traffic for the bridge and for the devices behind each other. tcpdump on a port in promiscuous mode also sees all traffic of the port again.
+- interfaces: multicast groups joined while a port is up, for example by IPv6 or a multicast service, are now received on that port. Before, only the groups present when the port came up were. Multicast routing (igmpproxy, pimd) now receives every multicast group on the ports in use.
+- offload: IPv4 and IPv6 traffic between the ports of a bridge is now forwarded by the hardware, at full line rate with the CPU idle. Other traffic between bridge ports, such as ARP, stays on the CPU: offloading such frames could stop the hardware offload for the whole router until a reboot.
+- offload: bridges are now found and followed while the router runs. Creating or removing a bridge, or adding or removing a port, takes effect at once, without a reboot or a restart of cmm. A device that moves to another bridge port, and the traffic of a port that leaves the bridge, no longer get stuck on the old port.
+- offload: the hardware's last-used time of offloaded flows was read byte-swapped, so busy flows could look idle. Busy traffic between bridge ports was taken out of the hardware every 30 seconds and set up again. The last-used time is now read correctly.
+- cmmctl: cmmctl bridge show flows now lists the offloaded bridge flows and when each one expires. Before, the list was always empty.
