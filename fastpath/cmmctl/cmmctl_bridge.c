@@ -369,23 +369,27 @@ cmd_show_flows(int fd)
 	 * the list at once.
 	 */
 	fpp_l2_bridge_flow_entry_cmd_t cmd, resp;
+	/* CDX answers with 2 bytes more than the struct; a buffer of just
+	 * sizeof(resp) makes ctrl_command() drop the whole reply. */
+	uint8_t rbuf[sizeof(resp) + 16];
 	uint16_t rlen;
 	int16_t rc;
 	int count = 0;
 
 	printf("%-17s  %-17s  %-6s  %-16s  %-16s  %s\n",
-	    "Src MAC", "Dst MAC", "Etype", "Input", "Output", "Timeout");
+	    "Src MAC", "Dst MAC", "Etype", "Input", "Output", "Expires in (s)");
 	printf("%-17s  %-17s  %-6s  %-16s  %-16s  %s\n",
 	    "---------", "---------", "-----", "-----", "------", "-------");
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.action = FPP_ACTION_QUERY;
 	while (1) {
-		memset(&resp, 0, sizeof(resp));
-		rlen = sizeof(resp);
+		memset(rbuf, 0, sizeof(rbuf));
+		rlen = sizeof(rbuf);
 		if (ctrl_command(fd, FPP_CMD_RX_L2FLOW_ENTRY,
-		    &cmd, sizeof(cmd), &rc, &resp, &rlen) < 0)
+		    &cmd, sizeof(cmd), &rc, rbuf, &rlen) < 0)
 			return (1);
+		memcpy(&resp, rbuf, sizeof(resp));
 		cmd.action = FPP_ACTION_QUERY_CONT;
 
 		if (rc == FPP_ERR_BRIDGE_ENTRY_NOT_FOUND)
