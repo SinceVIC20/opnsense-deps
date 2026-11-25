@@ -389,8 +389,8 @@ cmm_itf_init(void)
 				memcpy(itf->macaddr, LLADDR(sdl),
 				    ETHER_ADDR_LEN);
 
-			/* Detect bridge by link-layer type */
-			if (sdl->sdl_type == IFT_BRIDGE)
+			/* A bridge reports IFT_ETHER: go by the group. */
+			if (cmm_bridge_is_bridge(-1, ifa->ifa_name))
 				itf->itf_flags |= ITF_F_BRIDGE;
 
 			/* Get MTU and detect VLAN via ioctl */
@@ -578,6 +578,7 @@ cmm_itf_handle_ifinfo(struct cmm_global *g, void *msg, int msglen)
 	struct if_msghdr *ifm = msg;
 	struct cmm_interface *itf;
 	char ifname[IFNAMSIZ];
+	uint32_t old_flags;
 
 	(void)msglen;
 
@@ -597,8 +598,8 @@ cmm_itf_handle_ifinfo(struct cmm_global *g, void *msg, int msglen)
 		if (itf == NULL)
 			return;
 
-		/* Detect bridge by interface type */
-		if (ifm->ifm_data.ifi_type == IFT_BRIDGE)
+		/* A bridge reports IFT_ETHER: go by the group. */
+		if (cmm_bridge_is_bridge(-1, ifname))
 			itf->itf_flags |= ITF_F_BRIDGE;
 
 		/* Extract MAC from RTM_IFINFO sockaddr_dl */
@@ -644,6 +645,7 @@ cmm_itf_handle_ifinfo(struct cmm_global *g, void *msg, int msglen)
 		    (itf->itf_flags & ITF_F_WIFI) ? " WIFI" : "");
 	}
 
+	old_flags = itf->flags;
 	if (itf->flags != (uint32_t)ifm->ifm_flags) {
 		cmm_print(CMM_LOG_INFO, "itf: %s flags 0x%x -> 0x%x%s%s",
 		    itf->ifname, itf->flags, ifm->ifm_flags,
@@ -694,9 +696,19 @@ cmm_itf_handle_ifinfo(struct cmm_global *g, void *msg, int msglen)
 	cmm_mcast_itf_update(g, itf->ifname,
 	    (itf->flags & IFF_UP) ? 1 : 0);
 
-	/* If this is a bridge or a potential bridge member, rescan */
+	/*
+	 * A change of bridge membership sends no dedicated message: adding
+	 * or removing a member switches promiscuous mode on the member, and
+	 * that sends RTM_IFINFO for the member.  So read the bridges again
+	 * on a message for a bridge, for a port cmm has as a member (that
+	 * may have left), and for a port whose IFF_PROMISC changed (that may
+	 * have joined).  A port already promiscuous (tcpdump) when added sends
+	 * nothing; the bridge's own next message, or the recheck after lost
+	 * route socket messages, picks up the change.
+	 */
 	if ((itf->itf_flags & ITF_F_BRIDGE) ||
-	    ifm->ifm_data.ifi_type == IFT_BRIDGE)
+	    cmm_bridge_is_member(itf->ifname) ||
+	    ((old_flags ^ itf->flags) & IFF_PROMISC))
 		cmm_bridge_itf_update(g);
 }
 

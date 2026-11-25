@@ -20,6 +20,7 @@
 #include <sys/ioctl.h>
 #include <sys/event.h>
 #include <sys/socket.h>
+#include <sys/sockio.h>
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_types.h>
@@ -53,6 +54,53 @@ static int autobridge_fd = -1;
 /* ------------------------------------------------------------------ */
 /* Section 1: Bridge detection and port enumeration                   */
 /* ------------------------------------------------------------------ */
+
+/*
+ * Is ifname a bridge?  A FreeBSD bridge reports IFT_ETHER, not
+ * IFT_BRIDGE, both in the link address and in if_data, so the type
+ * cannot tell.  if_clone puts every bridge into the "bridge" interface
+ * group on creation, and the group stays across a rename.
+ * sd may be -1; a socket is then opened for the query.
+ */
+int
+cmm_bridge_is_bridge(int sd, const char *ifname)
+{
+	struct ifgroupreq ifgr;
+	struct ifg_req *g;
+	u_int len, i;
+	int own = 0, found = 0;
+
+	if (sd < 0) {
+		sd = socket(AF_LOCAL, SOCK_DGRAM, 0);
+		if (sd < 0)
+			return (0);
+		own = 1;
+	}
+
+	memset(&ifgr, 0, sizeof(ifgr));
+	strlcpy(ifgr.ifgr_name, ifname, sizeof(ifgr.ifgr_name));
+	if (ioctl(sd, SIOCGIFGROUP, &ifgr) < 0 || ifgr.ifgr_len == 0)
+		goto out;
+
+	len = ifgr.ifgr_len;
+	ifgr.ifgr_groups = calloc(1, len);
+	if (ifgr.ifgr_groups == NULL)
+		goto out;
+	if (ioctl(sd, SIOCGIFGROUP, &ifgr) == 0) {
+		g = ifgr.ifgr_groups;
+		for (i = 0; i + sizeof(*g) <= ifgr.ifgr_len; i += sizeof(*g), g++) {
+			if (strcmp(g->ifgrq_group, "bridge") == 0) {
+				found = 1;
+				break;
+			}
+		}
+	}
+	free(ifgr.ifgr_groups);
+out:
+	if (own)
+		close(sd);
+	return (found);
+}
 
 /*
  * Query bridge member ports via SIOCGDRVSPEC / BRDGGIFS ioctl.
@@ -149,14 +197,14 @@ bridge_free_ports(struct cmm_bridge *br)
 }
 
 /*
- * Free all bridges and their ports.
+ * Free all bridges and the bridge ports on a list.
  */
 static void
-bridge_free_all(void)
+bridge_free_all(struct list_head *list)
 {
 	struct list_head *pos, *tmp;
 
-	for (pos = list_first(&bridge_list); pos != &bridge_list;) {
+	for (pos = list_first(list); pos != list;) {
 		tmp = list_next(pos);
 		struct cmm_bridge *br = container_of(pos,
 		    struct cmm_bridge, entry);
@@ -171,12 +219,11 @@ bridge_free_all(void)
  * Find a bridge record by ifindex.
  */
 static struct cmm_bridge *
-bridge_find(int ifindex)
+bridge_find(struct list_head *list, int ifindex)
 {
 	struct list_head *pos;
 
-	for (pos = list_first(&bridge_list); pos != &bridge_list;
-	    pos = list_next(pos)) {
+	for (pos = list_first(list); pos != list; pos = list_next(pos)) {
 		struct cmm_bridge *br = container_of(pos,
 		    struct cmm_bridge, entry);
 		if (br->ifindex == ifindex)
@@ -186,16 +233,44 @@ bridge_find(int ifindex)
 }
 
 /*
- * Scan system for bridge interfaces using getifaddrs.
- * Detect bridges by IFT_BRIDGE type in the link-layer address.
+ * Find the bridge a member port belongs to, by port name.
+ */
+static struct cmm_bridge *
+bridge_find_port(struct list_head *list, const char *ifname)
+{
+	struct list_head *bpos, *ppos;
+
+	for (bpos = list_first(list); bpos != list; bpos = list_next(bpos)) {
+		struct cmm_bridge *br = container_of(bpos,
+		    struct cmm_bridge, entry);
+
+		for (ppos = list_first(&br->ports); ppos != &br->ports;
+		    ppos = list_next(ppos)) {
+			struct cmm_bridge_port *port = container_of(ppos,
+			    struct cmm_bridge_port, entry);
+			if (strcmp(port->ifname, ifname) == 0)
+				return (br);
+		}
+	}
+	return (NULL);
+}
+
+/*
+ * Is ifname a member port of a bridge cmm knows about?
+ */
+int
+cmm_bridge_is_member(const char *ifname)
+{
+	return (bridge_find_port(&bridge_list, ifname) != NULL);
+}
+
+/*
+ * Scan the system for bridges and the member ports into list.
  */
 static void
-bridge_scan(int sd)
+bridge_scan(int sd, struct list_head *list)
 {
 	struct ifaddrs *ifap, *ifa;
-
-	/* Clear old state */
-	bridge_free_all();
 
 	if (getifaddrs(&ifap) < 0) {
 		cmm_print(CMM_LOG_ERR, "bridge: getifaddrs: %s",
@@ -213,7 +288,7 @@ bridge_scan(int sd)
 			continue;
 
 		sdl = (struct sockaddr_dl *)ifa->ifa_addr;
-		if (sdl->sdl_type != IFT_BRIDGE)
+		if (!cmm_bridge_is_bridge(sd, ifa->ifa_name))
 			continue;
 
 		idx = if_nametoindex(ifa->ifa_name);
@@ -221,7 +296,7 @@ bridge_scan(int sd)
 			continue;
 
 		/* Already seen (multiple addrs per interface) */
-		if (bridge_find(idx) != NULL)
+		if (bridge_find(list, idx) != NULL)
 			continue;
 
 		br = calloc(1, sizeof(*br));
@@ -233,16 +308,9 @@ bridge_scan(int sd)
 		if (sdl->sdl_alen == ETHER_ADDR_LEN)
 			memcpy(br->macaddr, LLADDR(sdl), ETHER_ADDR_LEN);
 		list_head_init(&br->ports);
-		list_add(&bridge_list, &br->entry);
+		list_add(list, &br->entry);
 
 		bridge_get_ports(br, sd);
-
-		cmm_print(CMM_LOG_INFO,
-		    "bridge: detected %s (ifindex %d, "
-		    "mac %02x:%02x:%02x:%02x:%02x:%02x)",
-		    br->ifname, br->ifindex,
-		    br->macaddr[0], br->macaddr[1], br->macaddr[2],
-		    br->macaddr[3], br->macaddr[4], br->macaddr[5]);
 	}
 
 	freeifaddrs(ifap);
@@ -332,56 +400,126 @@ cmm_bridge_resolve_port(int bridge_ifindex, const uint8_t *dst_mac,
 	return (found ? 0 : -1);
 }
 
+static void l2flow_flush_port(struct cmm_global *g, const char *ifname);
+
 /*
- * Rescan bridges after interface change events.
- * Re-enumerate bridges and send BRIDGED_ITF_UPDATE for each member port.
+ * Tell CDX that a port joined (on = 1) or left (on = 0) a bridge:
+ * L2 bridging on the port input, and the bridged state with the bridge's MAC.
+ */
+static void
+bridge_port_notify(struct cmm_global *g, const char *ifname,
+    const uint8_t *br_mac, int on)
+{
+	fpp_l2_bridge_enable_cmd_t ecmd;
+	fpp_bridged_itf_cmd_t bcmd;
+
+	memset(&ecmd, 0, sizeof(ecmd));
+	ecmd.enable_flag = on ? 1 : 0;
+	strlcpy(ecmd.input_name, ifname, sizeof(ecmd.input_name));
+	if (fci_write(g->fci_handle, FPP_CMD_RX_L2BRIDGE_ENABLE,
+	    sizeof(ecmd), (unsigned short *)&ecmd) != 0)
+		cmm_print(CMM_LOG_WARN, "bridge: L2BRIDGE_ENABLE %d "
+		    "failed for %s", on, ifname);
+
+	memset(&bcmd, 0, sizeof(bcmd));
+	strlcpy(bcmd.ifname, ifname, sizeof(bcmd.ifname));
+	bcmd.is_bridged = on ? 1 : 0;
+	if (on)
+		memcpy(bcmd.br_macaddr, br_mac, ETHER_ADDR_LEN);
+	if (fci_write(g->fci_handle, FPP_CMD_BRIDGED_ITF_UPDATE,
+	    sizeof(bcmd), (unsigned short *)&bcmd) != 0)
+		cmm_print(CMM_LOG_WARN, "bridge: BRIDGED_ITF_UPDATE %d "
+		    "failed for %s", on, ifname);
+}
+
+/*
+ * Read the bridges again and bring CDX in line with what changed since
+ * the last read.  Called at start and on every interface message for a
+ * bridge or a port that is or was a member, so a bridge set up at boot
+ * and one built or changed later end in the same state.  Only changes
+ * are sent: a port that joined is enabled, a port that left is disabled
+ * and the port's L2 flows leave the hardware (the FMan would otherwise go on
+ * bridging frames between ports that are no longer bridged).
  */
 void
 cmm_bridge_itf_update(struct cmm_global *g)
 {
-	struct list_head *bpos, *ppos;
-	fpp_bridged_itf_cmd_t cmd;
+	struct list_head old, *bpos, *ppos;
 	int sd;
 
 	sd = socket(AF_LOCAL, SOCK_DGRAM, 0);
 	if (sd < 0)
 		return;
 
-	bridge_scan(sd);
+	/* The previous read becomes "old"; read the system into bridge_list. */
+	list_head_init(&old);
+	if (!list_empty(&bridge_list)) {
+		old.next = bridge_list.next;
+		old.prev = bridge_list.prev;
+		old.next->prev = &old;
+		old.prev->next = &old;
+		list_head_init(&bridge_list);
+	}
+	bridge_scan(sd, &bridge_list);
 	close(sd);
 
-	/* Notify CDX about bridged interfaces */
+	/* Bridges and ports that are new, or whose bridge MAC changed. */
 	for (bpos = list_first(&bridge_list); bpos != &bridge_list;
 	    bpos = list_next(bpos)) {
 		struct cmm_bridge *br = container_of(bpos,
 		    struct cmm_bridge, entry);
+		struct cmm_bridge *obr = bridge_find(&old, br->ifindex);
+
+		if (obr == NULL)
+			cmm_print(CMM_LOG_INFO, "bridge: detected %s "
+			    "(ifindex %d, mac %02x:%02x:%02x:%02x:%02x:%02x)",
+			    br->ifname, br->ifindex,
+			    br->macaddr[0], br->macaddr[1], br->macaddr[2],
+			    br->macaddr[3], br->macaddr[4], br->macaddr[5]);
 
 		for (ppos = list_first(&br->ports); ppos != &br->ports;
 		    ppos = list_next(ppos)) {
 			struct cmm_bridge_port *port = container_of(ppos,
 			    struct cmm_bridge_port, entry);
+			struct cmm_bridge *was = bridge_find_port(&old,
+			    port->ifname);
 
-			memset(&cmd, 0, sizeof(cmd));
-			strlcpy(cmd.ifname, port->ifname,
-			    sizeof(cmd.ifname));
-			cmd.is_bridged = 1;
-			memcpy(cmd.br_macaddr, br->macaddr,
-			    ETHER_ADDR_LEN);
-
-			if (fci_write(g->fci_handle,
-			    FPP_CMD_BRIDGED_ITF_UPDATE,
-			    sizeof(cmd), (unsigned short *)&cmd) != 0) {
-				cmm_print(CMM_LOG_WARN,
-				    "bridge: BRIDGED_ITF_UPDATE "
-				    "failed for %s", port->ifname);
-			} else {
-				cmm_print(CMM_LOG_DEBUG,
-				    "bridge: BRIDGED_ITF_UPDATE "
-				    "sent for %s (bridge %s)",
-				    port->ifname, br->ifname);
-			}
+			if (was != NULL && was->ifindex == br->ifindex &&
+			    memcmp(was->macaddr, br->macaddr,
+			    ETHER_ADDR_LEN) == 0)
+				continue;	/* unchanged */
+			if (was != NULL && was->ifindex != br->ifindex)
+				l2flow_flush_port(g, port->ifname);
+			cmm_print(CMM_LOG_INFO, "bridge: %s port %s %s",
+			    br->ifname, port->ifname,
+			    was == NULL ? "added" : "updated");
+			bridge_port_notify(g, port->ifname, br->macaddr, 1);
 		}
 	}
+
+	/* Ports that left a bridge, or whose bridge is gone. */
+	for (bpos = list_first(&old); bpos != &old; bpos = list_next(bpos)) {
+		struct cmm_bridge *obr = container_of(bpos,
+		    struct cmm_bridge, entry);
+
+		for (ppos = list_first(&obr->ports); ppos != &obr->ports;
+		    ppos = list_next(ppos)) {
+			struct cmm_bridge_port *port = container_of(ppos,
+			    struct cmm_bridge_port, entry);
+
+			if (bridge_find_port(&bridge_list, port->ifname) != NULL)
+				continue;
+			cmm_print(CMM_LOG_INFO, "bridge: %s port %s removed",
+			    obr->ifname, port->ifname);
+			l2flow_flush_port(g, port->ifname);
+			bridge_port_notify(g, port->ifname, NULL, 0);
+		}
+		if (bridge_find(&bridge_list, obr->ifindex) == NULL)
+			cmm_print(CMM_LOG_INFO, "bridge: %s gone",
+			    obr->ifname);
+	}
+
+	bridge_free_all(&old);
 }
 
 /* ------------------------------------------------------------------ */
@@ -580,6 +718,40 @@ l2flow_flush_all(struct cmm_global *g)
 			pos = tmp;
 		}
 	}
+}
+
+/*
+ * Take every L2 flow that enters or leaves ifname out of the hardware,
+ * and tell auto_bridge to forget the flow, so frames go back through the
+ * software bridge (which applies the new membership) and a flow that
+ * is still bridged is offloaded again from the next frame.
+ */
+static void
+l2flow_flush_port(struct cmm_global *g, const char *ifname)
+{
+	struct list_head *pos, *tmp;
+	int i, n = 0;
+
+	for (i = 0; i < CMM_L2FLOW_HASH_SIZE; i++) {
+		for (pos = list_first(&l2flow_table[i]);
+		    pos != &l2flow_table[i];) {
+			tmp = list_next(pos);
+			struct cmm_l2flow *entry = container_of(pos,
+			    struct cmm_l2flow, hash_entry);
+			if (strcmp(entry->input_name, ifname) == 0 ||
+			    strcmp(entry->output_name, ifname) == 0) {
+				l2flow_fpp_deregister(g, entry);
+				autobridge_respond(&entry->flow,
+				    ABM_FLAG_REMOVED | ABM_FLAG_ACK);
+				l2flow_del(entry);
+				n++;
+			}
+			pos = tmp;
+		}
+	}
+	if (n > 0)
+		cmm_print(CMM_LOG_INFO, "bridge: %d L2 flow(s) on %s "
+		    "taken out of the hardware", n, ifname);
 }
 
 /*
@@ -792,8 +964,13 @@ cmm_bridge_event(struct cmm_global *g)
 
 /*
  * FCI event handler for FPP_CMD_RX_L2FLOW_ENTRY.
- * When CDX sends ACTION_REMOVED (flow timed out in hardware),
- * remove from our hash table and notify auto_bridge.
+ * CDX sends ACTION_REMOVED when a flow saw no traffic for the flow
+ * timeout.  CDX only reports the timeout: the hardware entry stays until
+ * deregistered (as in ASK's cmm, __cmm_l2flow_deregister()).  So send
+ * DEREGISTER, by the tuple alone, also for a flow this cmm never
+ * registered (left from a cmm that ran before); then drop the record
+ * and tell auto_bridge the flow is gone, so a flow that comes back is
+ * seen as new and offloaded again.
  *
  * Called from the top-level FCI event dispatcher in cmm.c.
  * Returns FCI_CB_CONTINUE for unrecognized events.
@@ -845,14 +1022,34 @@ cmm_bridge_fci_event(unsigned short fcode, unsigned short len,
 	memcpy(flow.sip, cmd->saddr, sizeof(flow.sip));
 	memcpy(flow.dip, cmd->daddr, sizeof(flow.dip));
 
+	{
+		fpp_l2_bridge_flow_entry_cmd_t dcmd;
+		int rc;
+
+		memset(&dcmd, 0, sizeof(dcmd));
+		dcmd.action = FPP_ACTION_DEREGISTER;
+		memcpy(dcmd.srcaddr, cmd->srcaddr, ETHER_ADDR_LEN);
+		memcpy(dcmd.destaddr, cmd->destaddr, ETHER_ADDR_LEN);
+		dcmd.ethertype = cmd->ethertype;
+		dcmd.svlan_tag = cmd->svlan_tag;
+		dcmd.cvlan_tag = cmd->cvlan_tag;
+		dcmd.session_id = cmd->session_id;
+		rc = fci_write(cmm_g.fci_handle, FPP_CMD_RX_L2FLOW_ENTRY,
+		    sizeof(dcmd), (unsigned short *)&dcmd);
+		if (rc != 0 && rc != FPP_ERR_BRIDGE_ENTRY_NOT_FOUND)
+			cmm_print(CMM_LOG_WARN,
+			    "bridge: deregister after CDX timeout failed: %d",
+			    rc);
+	}
+
 	entry = l2flow_find(&flow);
 	if (entry != NULL) {
-		entry->fpp_programmed = 0;	/* already removed by CDX */
+		entry->fpp_programmed = 0;	/* deregistered above */
 		l2flow_del(entry);
 	}
 
-	/* Notify auto_bridge so it can clean up kernel state */
-	autobridge_respond(&flow, ABM_FLAG_ACK);
+	/* auto_bridge drops the flow; the next frame starts a new one. */
+	autobridge_respond(&flow, ABM_FLAG_REMOVED | ABM_FLAG_ACK);
 
 	return (FCI_CB_CONTINUE);
 }
@@ -861,51 +1058,11 @@ cmm_bridge_fci_event(unsigned short fcode, unsigned short len,
 /* Module lifecycle                                                    */
 /* ------------------------------------------------------------------ */
 
-/*
- * Enable L2 bridge on each detected bridge member port in CDX.
- */
-static void
-bridge_enable_ports(struct cmm_global *g)
-{
-	struct list_head *bpos, *ppos;
-
-	for (bpos = list_first(&bridge_list); bpos != &bridge_list;
-	    bpos = list_next(bpos)) {
-		struct cmm_bridge *br = container_of(bpos,
-		    struct cmm_bridge, entry);
-
-		for (ppos = list_first(&br->ports); ppos != &br->ports;
-		    ppos = list_next(ppos)) {
-			struct cmm_bridge_port *port = container_of(ppos,
-			    struct cmm_bridge_port, entry);
-			fpp_l2_bridge_enable_cmd_t ecmd;
-
-			memset(&ecmd, 0, sizeof(ecmd));
-			ecmd.enable_flag = 1;
-			strlcpy(ecmd.input_name, port->ifname,
-			    sizeof(ecmd.input_name));
-
-			if (fci_write(g->fci_handle,
-			    FPP_CMD_RX_L2BRIDGE_ENABLE,
-			    sizeof(ecmd),
-			    (unsigned short *)&ecmd) != 0) {
-				cmm_print(CMM_LOG_WARN,
-				    "bridge: L2BRIDGE_ENABLE "
-				    "failed for %s", port->ifname);
-			} else {
-				cmm_print(CMM_LOG_INFO,
-				    "bridge: L2BRIDGE enabled "
-				    "on %s", port->ifname);
-			}
-		}
-	}
-}
-
 int
 cmm_bridge_init(struct cmm_global *g)
 {
 	fpp_l2_bridge_control_cmd_t ctrl;
-	int sd, i;
+	int i;
 
 	/* Initialize hash table */
 	for (i = 0; i < CMM_L2FLOW_HASH_SIZE; i++)
@@ -913,12 +1070,13 @@ cmm_bridge_init(struct cmm_global *g)
 
 	list_head_init(&bridge_list);
 
-	/* Scan for bridges */
-	sd = socket(AF_LOCAL, SOCK_DGRAM, 0);
-	if (sd >= 0) {
-		bridge_scan(sd);
-		close(sd);
-	}
+	/*
+	 * L2 flows a cmm that ran before left in the hardware have no
+	 * record here and would never be deregistered: clear those flows.
+	 */
+	if (fci_write(g->fci_handle, FPP_CMD_RX_L2BRIDGE_FLOW_RESET,
+	    0, NULL) != 0)
+		cmm_print(CMM_LOG_WARN, "bridge: FLOW_RESET at start failed");
 
 	/* Open /dev/autobridge */
 	autobridge_fd = open(ABM_DEV_PATH, O_RDWR | O_NONBLOCK);
@@ -933,7 +1091,6 @@ cmm_bridge_init(struct cmm_global *g)
 		fci_write(g->fci_handle, FPP_CMD_RX_L2BRIDGE_MODE,
 		    sizeof(ctrl), (unsigned short *)&ctrl);
 
-		bridge_enable_ports(g);
 		cmm_bridge_itf_update(g);
 
 		cmm_print(CMM_LOG_INFO,
@@ -944,10 +1101,7 @@ cmm_bridge_init(struct cmm_global *g)
 	/* Store fd in global state for kqueue registration */
 	g->autobridge_fd = autobridge_fd;
 
-	/* Enable bridging on all detected member ports */
-	bridge_enable_ports(g);
-
-	/* Notify CDX about bridged interfaces */
+	/* First read: every bridge and port found is new to CDX. */
 	cmm_bridge_itf_update(g);
 
 	/* Set auto mode */
@@ -985,7 +1139,7 @@ cmm_bridge_fini(struct cmm_global *g)
 	l2flow_flush_all(g);
 
 	/* Free bridge records */
-	bridge_free_all();
+	bridge_free_all(&bridge_list);
 
 	/* Close autobridge device */
 	if (autobridge_fd >= 0) {

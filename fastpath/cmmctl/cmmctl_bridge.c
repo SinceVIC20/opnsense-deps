@@ -361,31 +361,45 @@ cmd_show_status(int fd)
 static int
 cmd_show_flows(int fd)
 {
-	fpp_l2_bridge_query_entry_response_t resp;
+	/*
+	 * CDX answers FLOW_ENTRY ACTION_QUERY / QUERY_CONT with one flow per
+	 * call (the flow-entry layout, the first word replaced by the status)
+	 * and FPP_ERR_BRIDGE_ENTRY_NOT_FOUND after the last one.  The older
+	 * RX_L2BRIDGE_QUERY_ENTRY command is a stub there that always ends
+	 * the list at once.
+	 */
+	fpp_l2_bridge_flow_entry_cmd_t cmd, resp;
 	uint16_t rlen;
 	int16_t rc;
 	int count = 0;
 
 	printf("%-17s  %-17s  %-6s  %-16s  %-16s  %s\n",
-	    "Src MAC", "Dst MAC", "Etype", "Input", "Output", "Prio");
+	    "Src MAC", "Dst MAC", "Etype", "Input", "Output", "Timeout");
 	printf("%-17s  %-17s  %-6s  %-16s  %-16s  %s\n",
-	    "---------", "---------", "-----", "-----", "------", "----");
+	    "---------", "---------", "-----", "-----", "------", "-------");
 
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.action = FPP_ACTION_QUERY;
 	while (1) {
+		memset(&resp, 0, sizeof(resp));
 		rlen = sizeof(resp);
-		if (ctrl_command(fd, FPP_CMD_RX_L2BRIDGE_QUERY_ENTRY,
-		    NULL, 0, &rc, &resp, &rlen) < 0)
+		if (ctrl_command(fd, FPP_CMD_RX_L2FLOW_ENTRY,
+		    &cmd, sizeof(cmd), &rc, &resp, &rlen) < 0)
 			return (1);
+		cmd.action = FPP_ACTION_QUERY_CONT;
 
-		if (rc != 0 || rlen < sizeof(resp))
+		if (rc == FPP_ERR_BRIDGE_ENTRY_NOT_FOUND)
 			break;
-
-		if (resp.eof)
+		if (rc != 0 || rlen < sizeof(resp)) {
+			if (rc != 0)
+				fprintf(stderr, "bridge show flows: error %d\n",
+				    rc);
 			break;
+		}
 
 		printf("%02x:%02x:%02x:%02x:%02x:%02x  "
 		    "%02x:%02x:%02x:%02x:%02x:%02x  "
-		    "0x%04x  %-16s  %-16s  %u\n",
+		    "0x%04x  %-16.16s  %-16.16s  %u\n",
 		    resp.srcaddr[0], resp.srcaddr[1],
 		    resp.srcaddr[2], resp.srcaddr[3],
 		    resp.srcaddr[4], resp.srcaddr[5],
@@ -395,9 +409,10 @@ cmd_show_flows(int fd)
 		    ntohs(resp.ethertype),
 		    resp.input_name[0] ? resp.input_name : "-",
 		    resp.output_name[0] ? resp.output_name : "-",
-		    resp.pkt_priority);
+		    resp.timeout);
 
-		count++;
+		if (++count > 100000)	/* never loop forever */
+			break;
 	}
 
 	printf("\n%d flow(s)\n", count);

@@ -77,6 +77,8 @@ int	cmm_bridge_resolve_port(int bridge_ifindex,
  * Detects new/removed bridges and updates member port lists.
  */
 void	cmm_bridge_itf_update(struct cmm_global *g);
+int	cmm_bridge_is_bridge(int sd, const char *ifname);
+int	cmm_bridge_is_member(const char *ifname);
 
 /*
  * Handle FCI async events (CDX L2 bridge flow timeout notifications).

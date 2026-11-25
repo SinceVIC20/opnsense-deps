@@ -25,6 +25,7 @@
 #include "cmm.h"
 #include "cmm_rtsock.h"
 #include "cmm_itf.h"
+#include "cmm_bridge.h"
 #include "cmm_route.h"
 
 int cmm_rtsock_seq;
@@ -169,8 +170,11 @@ cmm_rtsock_dispatch(struct cmm_global *g)
 	if (n < 0) {
 		if (errno == ENOBUFS) {
 			cmm_print(CMM_LOG_WARN,
-			    "rtsock: messages lost, rechecking PPP interfaces");
+			    "rtsock: messages lost, rechecking PPP interfaces "
+			    "and bridges");
 			cmm_itf_ppp_recheck(g);
+			/* A lost member add/remove leaves no other trace. */
+			cmm_bridge_itf_update(g);
 		}
 		return;
 	}
