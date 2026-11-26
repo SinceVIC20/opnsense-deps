@@ -48,6 +48,17 @@
 /usr/local/opnsense/mvc/app/models/OPNsense/Mono/ACL/ACL.xml
 /usr/local/opnsense/mvc/app/models/OPNsense/Mono/Menu/Menu.xml
 /usr/local/opnsense/mvc/app/views/OPNsense/Mono/sfp.volt
+/usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/Api/FanController.php
+/usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/FanController.php
+/usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/forms/dialogCurve.xml
+/usr/local/opnsense/mvc/app/controllers/OPNsense/Mono/forms/fans.xml
+/usr/local/opnsense/mvc/app/models/OPNsense/Mono/Fan.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Mono/Fan.xml
+/usr/local/opnsense/mvc/app/models/OPNsense/Mono/FieldTypes/CurveField.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Mono/FieldTypes/SensorField.php
+/usr/local/opnsense/mvc/app/views/OPNsense/Mono/fan.volt
+/usr/local/opnsense/service/templates/OPNsense/Mono/+TARGETS
+/usr/local/opnsense/service/templates/OPNsense/Mono/fand.conf
 /usr/local/opnsense/mvc/app/library/OPNsense/System/Status/MonoShaperStatus.php
 /usr/local/opnsense/www/js/widgets/Mono.js
 /usr/local/opnsense/www/js/widgets/MonoConnections.js

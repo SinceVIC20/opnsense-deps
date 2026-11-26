@@ -1,5 +1,8 @@
 <menu>
     <System>
+        <Settings>
+            <FanControl VisibleName="Fan control" url="/ui/mono/fan"/>
+        </Settings>
         <Diagnostics>
             <SFP VisibleName="SFP+" url="/ui/mono/sfp"/>
         </Diagnostics>

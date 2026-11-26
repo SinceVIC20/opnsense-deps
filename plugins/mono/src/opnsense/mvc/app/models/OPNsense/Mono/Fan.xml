@@ -1,0 +1,43 @@
+<model>
+    <mount>//OPNsense/Mono/fan</mount>
+    <version>1.0.0</version>
+    <description>Mono Gateway fan control</description>
+    <items>
+        <fans>
+            <fan0 type=".\CurveField">
+                <Required>Y</Required>
+                <Default>standard</Default>
+            </fan0>
+            <fan1 type=".\CurveField">
+                <Required>Y</Required>
+                <Default>standard</Default>
+            </fan1>
+        </fans>
+        <curves>
+            <curve type="ArrayField">
+                <name type="TextField">
+                    <Required>Y</Required>
+                    <Mask>/^[A-Za-z0-9 -]{1,32}$/D</Mask>
+                    <ValidationMessage>Use up to 32 letters, digits, spaces and hyphens.</ValidationMessage>
+                    <Constraints>
+                        <check001>
+                            <ValidationMessage>There is already a curve with this name.</ValidationMessage>
+                            <type>UniqueConstraint</type>
+                        </check001>
+                    </Constraints>
+                </name>
+                <sensors type=".\SensorField">
+                    <Required>Y</Required>
+                    <Multiple>Y</Multiple>
+                    <Default>core-cluster</Default>
+                    <ValidationMessage>Choose at least one sensor.</ValidationMessage>
+                </sensors>
+                <points type="TextField">
+                    <Required>Y</Required>
+                    <Mask>/^[0-9]{1,3}:[0-9]{1,3}(,[0-9]{1,3}:[0-9]{1,3}){0,31}$/D</Mask>
+                    <ValidationMessage>Add at least one point, and at most 32.</ValidationMessage>
+                </points>
+            </curve>
+        </curves>
+    </items>
+</model>
